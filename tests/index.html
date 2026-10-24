@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather app tests</title>
+<style>
+/* Test harness: results on top, the page under test in an iframe below. */
+body { margin: 0; padding: 20px; font: 14px/1.5 system-ui, -apple-system, sans-serif; background: #f4f5f1; color: #22261f; }
+h1 { margin: 0 0 12px; font-size: 20px; }
+#test-results { margin: 0 0 12px; padding: 12px 14px; background: #fff; border-radius: 8px; font: 13px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+#log { margin: 0 0 20px; padding-left: 24px; font-size: 13px; }
+#log .group { list-style: none; margin: 10px 0 2px -24px; font-weight: 600; }
+#log .pass::marker { color: #2f7a2f; }
+#log .fail { color: #b3261e; font-weight: 600; }
+#stage iframe { display: block; height: 900px; border: 1px solid #b9bdb3; background: #fff; }
+</style>
+</head>
+<body>
+<h1>Weather app tests</h1>
+<pre id="test-results">Running…</pre>
+<ol id="log"></ol>
+<div id="stage"></div>
+<script src="tests.js"></script>
+</body>
+</html>
