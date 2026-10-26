@@ -15,7 +15,7 @@ Steps:
 3. Check for:
    - **Correctness**: logic bugs, unhandled states, broken existing features, JavaScript that won't parse.
    - **Spec fit**: each acceptance criterion is actually implemented; nothing outside scope was added.
-   - **Project rules**: colors as tokens in both themes, phone width, keyboard access, no API keys or secrets in the code, no new dependencies.
+   - **Project rules**: colors as tokens in both themes, phone width, keyboard access, no secrets in the code (the anon key is fine, the service-role key is not), RLS on every table, no libraries beyond those CLAUDE.md allows.
    - **Simplicity**: needless code or duplication that a smaller change would avoid.
 4. Report only real problems you can point to. For each one give the file and line, what goes wrong, and a concrete scenario that triggers it.
 

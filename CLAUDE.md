@@ -1,19 +1,30 @@
 # Weather
 
-A one-page weather site, to be live at https://treefinderer.github.io/weather/ (repo `treefinderer/weather`).
-The `pages` GitHub Actions workflow deploys it on every push to `main`.
+A weather-history web app, live at https://treefinderer.github.io/weather/ (repo `treefinderer/weather`).
+Users sign in, pick up to 10 cities, and the app records each city's weather at 12am and 12pm local time from several services, then shows the history as tables and charts.
+The `pages` GitHub Actions workflow deploys the frontend on every push to `main`.
+
+## Architecture (decided 2026-10-25)
+
+- **Frontend:** static HTML/CSS/JS on GitHub Pages. It talks to Supabase with `supabase-js`, loaded from jsDelivr at a pinned exact version.
+- **Backend:** Supabase: Postgres (SQL), Supabase Auth (email + password, password-reset emails), Row Level Security so each user sees only their own rows, and a scheduled Edge Function that collects readings.
+- **Weather sources:** keyless only, Open-Meteo and MET Norway (sends a `User-Agent` naming the app). Each reading is stored per source.
+- **Email notifications:** not decided yet. They come last (spec 0004).
+- **Roadmap:** 0001 accounts (sign up, sign in, password reset, °C/°F) → 0002 cities (up to 10) + twice-daily collection → 0003 history table, graph and charts → 0004 notifications.
 
 ## Files
 
 - `index.html` (markup), `style.css` (all styles), `common.js` (shared helpers on `window.Wx`).
 - A new feature gets its own IIFE `.js` file, loaded after `common.js`, and shares only through `window.Wx`.
+- `supabase/migrations/` holds the SQL schema and RLS policies, `supabase/functions/` the Edge Functions.
 - Read only the files a change touches.
 
 ## Rules
 
-- Plain HTML/CSS/JS: no build step, no dependencies. Colors are CSS tokens on `:root` with both dark-mode overrides. Fonts from Google Fonts only, always with a fallback stack.
+- No build step. The only runtime library is `supabase-js` (plus a chart library once spec 0003 picks one), each from a pinned CDN URL. Colors are CSS tokens on `:root` with both dark-mode overrides. Fonts from Google Fonts only, always with a fallback stack.
 - Must work at about 400px with no sideways scroll, and with keyboard only.
-- Weather data comes from keyless public APIs (for example Open-Meteo). Never commit API keys or secrets.
+- The Supabase project URL and anon key may be committed (they are public by design, and RLS protects the data). The service-role key and any other secret must never be committed. They live only in Supabase secrets.
+- Every table has RLS enabled, with policies limited to `auth.uid()`.
 - Local preview: `python3 -m http.server 8000` (the `site` entry in `.claude/launch.json`); the tests also show at http://localhost:8000/tests/.
 - `tests/run.sh` must print `RESULT: PASS` before anything merges. A hook enforces this on pushes to `main`.
 - Never force-push (a hook blocks it). If a push asks for a login, stop and ask the owner.
