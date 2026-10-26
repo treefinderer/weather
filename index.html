@@ -8,9 +8,140 @@
 </head>
 <body>
 <main class="app">
-  <h1>Weather</h1>
-  <p class="lede">Coming soon.</p>
+  <header class="topbar">
+    <h1>Weather</h1>
+    <div class="account" id="account" hidden>
+      <span class="account-email" id="account-email"></span>
+      <button type="button" class="btn-secondary" id="settings-open">Settings</button>
+      <button type="button" class="btn-secondary" id="sign-out">Sign out</button>
+    </div>
+  </header>
+
+  <section class="screen" id="screen-loading" aria-labelledby="loading-title">
+    <h2 class="visually-hidden" id="loading-title" tabindex="-1">Loading</h2>
+    <p class="lede" role="status">Loading…</p>
+  </section>
+
+  <section class="screen card" id="screen-unavailable" aria-labelledby="unavailable-title" hidden>
+    <h2 id="unavailable-title" tabindex="-1">Accounts</h2>
+    <p class="msg msg-error" role="alert">Accounts are unavailable right now. Please reload the page later.</p>
+  </section>
+
+  <section class="screen card" id="screen-signin" aria-labelledby="signin-title" hidden>
+    <h2 id="signin-title" tabindex="-1">Sign in</h2>
+    <form id="signin-form">
+      <div class="field">
+        <label for="signin-email">Email</label>
+        <input id="signin-email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="signin-password">Password</label>
+        <input id="signin-password" type="password" autocomplete="current-password" required>
+      </div>
+      <p class="msg" id="signin-msg" aria-live="polite"></p>
+      <button type="button" class="btn-secondary" id="signin-resend" hidden>Resend confirmation email</button>
+      <button type="button" class="link" id="signin-expired" hidden>Request a new reset link</button>
+      <button type="submit" class="btn" id="signin-submit">Sign in</button>
+    </form>
+    <p class="links">
+      <button type="button" class="link" id="to-forgot">Forgot password?</button>
+      <button type="button" class="link" id="to-signup">Create an account</button>
+    </p>
+  </section>
+
+  <section class="screen card" id="screen-signup" aria-labelledby="signup-title" hidden>
+    <h2 id="signup-title" tabindex="-1">Create an account</h2>
+    <form id="signup-form">
+      <div class="field">
+        <label for="signup-email">Email</label>
+        <input id="signup-email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="signup-password">Password</label>
+        <input id="signup-password" type="password" autocomplete="new-password" aria-describedby="signup-hint" required>
+        <p class="hint" id="signup-hint">At least 10 characters, with upper case, lower case and a digit.</p>
+      </div>
+      <div class="field">
+        <label for="signup-confirm">Confirm password</label>
+        <input id="signup-confirm" type="password" autocomplete="new-password" required>
+      </div>
+      <p class="msg" id="signup-msg" aria-live="polite"></p>
+      <button type="submit" class="btn" id="signup-submit">Create account</button>
+    </form>
+    <p class="links">Already have an account? <button type="button" class="link" id="signup-to-signin">Sign in</button></p>
+  </section>
+
+  <section class="screen card" id="screen-forgot" aria-labelledby="forgot-title" hidden>
+    <h2 id="forgot-title" tabindex="-1">Forgot password</h2>
+    <form id="forgot-form">
+      <div class="field">
+        <label for="forgot-email">Email</label>
+        <input id="forgot-email" type="email" autocomplete="email" required>
+      </div>
+      <p class="msg" id="forgot-msg" aria-live="polite"></p>
+      <button type="submit" class="btn" id="forgot-submit">Send reset link</button>
+    </form>
+    <p class="links"><button type="button" class="link" id="forgot-to-signin">Back to sign in</button></p>
+  </section>
+
+  <section class="screen card" id="screen-reset" aria-labelledby="reset-title" hidden>
+    <h2 id="reset-title" tabindex="-1">Set a new password</h2>
+    <form id="reset-form">
+      <div class="field">
+        <label for="reset-password">New password</label>
+        <input id="reset-password" type="password" autocomplete="new-password" aria-describedby="reset-hint" required>
+        <p class="hint" id="reset-hint">At least 10 characters, with upper case, lower case and a digit.</p>
+      </div>
+      <div class="field">
+        <label for="reset-confirm">Confirm new password</label>
+        <input id="reset-confirm" type="password" autocomplete="new-password" required>
+      </div>
+      <p class="msg" id="reset-msg" aria-live="polite"></p>
+      <button type="button" class="link" id="reset-expired" hidden>Request a new reset link</button>
+      <button type="submit" class="btn" id="reset-submit">Save password</button>
+    </form>
+  </section>
+
+  <section class="screen" id="screen-shell" aria-labelledby="cities-title" hidden>
+    <p class="msg msg-ok" id="shell-msg" aria-live="polite"></p>
+    <h2 id="cities-title" tabindex="-1">Your cities</h2>
+    <p class="lede">No cities yet.</p>
+  </section>
+
+  <section class="screen card" id="screen-settings" aria-labelledby="settings-title" hidden>
+    <div class="screen-head">
+      <h2 id="settings-title" tabindex="-1">Settings</h2>
+      <button type="button" class="btn-secondary" id="settings-back">Back</button>
+    </div>
+    <fieldset class="units">
+      <legend>Temperature unit</legend>
+      <label><input type="radio" name="unit" value="C" checked> °C</label>
+      <label><input type="radio" name="unit" value="F"> °F</label>
+      <p class="msg" id="unit-msg" aria-live="polite"></p>
+    </fieldset>
+    <form id="password-form">
+      <h3>Change password</h3>
+      <div class="field">
+        <label for="password-current">Current password</label>
+        <input id="password-current" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="field">
+        <label for="password-new">New password</label>
+        <input id="password-new" type="password" autocomplete="new-password" aria-describedby="password-hint" required>
+        <p class="hint" id="password-hint">At least 10 characters, with upper case, lower case and a digit.</p>
+      </div>
+      <div class="field">
+        <label for="password-confirm">Confirm new password</label>
+        <input id="password-confirm" type="password" autocomplete="new-password" required>
+      </div>
+      <p class="msg" id="password-msg" aria-live="polite"></p>
+      <button type="submit" class="btn" id="password-submit">Change password</button>
+    </form>
+  </section>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script src="common.js"></script>
+<script src="auth.js"></script>
 </body>
 </html>
