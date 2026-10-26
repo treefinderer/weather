@@ -173,7 +173,9 @@
     btn.addEventListener("click", () => remove(c));
     head.appendChild(btn);
     li.appendChild(head);
-    li.appendChild(el("p", "msg msg-error", removeFailed.has(c.id) ? MSG.removeFailed : ""));
+    const fail = el("p", "msg msg-error", removeFailed.has(c.id) ? MSG.removeFailed : "");
+    fail.setAttribute("aria-live", "polite");
+    li.appendChild(fail);
     const rows = readings[c.id] || [];
     if (!rows.length) {
       li.appendChild(el("p", "lede", MSG.noReadings));
@@ -214,6 +216,8 @@
   }
 
   // --- Loading ---
+  const READING_COLS = "city_id, source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm";
+
   function reset(user) {
     gen++;
     userId = user ? user.id : null;
@@ -242,8 +246,7 @@
     const [uc, lr] = await Promise.all([
       request(() => sb.from("user_cities").select("city_id, added_at, cities(id, name, admin1, country, lat, lon, timezone)")
         .eq("user_id", uid).order("added_at", { ascending: true })),
-      request(() => sb.from("latest_readings")
-        .select("city_id, source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm"))
+      request(() => sb.from("latest_readings").select(READING_COLS))
     ]);
     if (g !== gen) return;
     if (uc.error || lr.error) {
@@ -321,6 +324,19 @@
     cities.push(Object.assign({}, r));
     renderAll();
     setMsg("cities-msg", "Added " + r.name + ".", "ok");
+    loadReadings(r.id);
+  }
+
+  // Fetches a newly added city's latest readings, so one that already has readings (followed by someone else,
+  // or removed and re-added) shows them at once. On failure the card keeps "No readings yet".
+  async function loadReadings(id) {
+    const g = gen;
+    const res = await request(() => Wx.supabase.from("latest_readings").select(READING_COLS).eq("city_id", id));
+    if (g !== gen || res.error || !follows(id)) return;
+    const rows = (res.data || []).filter(row => row && Number(row.city_id) === id);
+    if (!rows.length) return;
+    readings[id] = rows;
+    renderCards();
   }
 
   async function remove(c) {

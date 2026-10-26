@@ -5,6 +5,9 @@ No secret value belongs in this repository: secrets live only in Supabase Vault 
 
 ## Spec 0002: cities and twice-daily collection (owner checklist)
 
+**Before you start:** `migrations/0001_profiles.sql` (spec 0001) must already be applied. The 0002 migration
+depends on it.
+
 Do these once, after the 0002 branch is merged, in the Supabase dashboard for the project. Every step works in the
 dashboard. The Supabase CLI is needed only if the dashboard editor in step 6 won't let you add the second file
 (the CLI route is given there).
@@ -96,10 +99,15 @@ npx supabase functions deploy collect --no-verify-jwt --project-ref <project-ref
    ```sh
    curl -s -o /dev/null -w 'HTTP/2 %{http_code}\n' -X POST -H 'x-collect-secret: wrong' https://<project-ref>.supabase.co/functions/v1/collect
    ```
-2. **Runs with the secret.** Paste the secret only into your terminal, not into a file:
+2. **Runs with the secret.** Paste the secret only into your terminal, not into a file. A secret typed into a
+   command ends up in your shell history, so read it from a hidden prompt instead (paste it, press Return):
    ```sh
-   curl -s -X POST -H 'x-collect-secret: <secret from step 2>' https://<project-ref>.supabase.co/functions/v1/collect
+   read -s COLLECT_SECRET
+   curl -s -X POST -H "x-collect-secret: $COLLECT_SECRET" https://<project-ref>.supabase.co/functions/v1/collect
+   unset COLLECT_SECRET
    ```
+   (Or type the secret inline but start the line with a space. Bash skips such lines when `HISTCONTROL=ignorespace`
+   is set; in zsh, the macOS default, run `setopt HIST_IGNORE_SPACE` first.)
    It prints something like `{"due":0,"inserted":0,"skipped":0,"failed":[]}`. `due` counts (city, source) pairs whose
    local 12am or 12pm window is open right now. It is 0 when no followed city is in its window.
 3. **Cron job.** Integrations → Cron (or Database → Cron Jobs) lists `collect` with schedule `5 * * * *`. After the next
