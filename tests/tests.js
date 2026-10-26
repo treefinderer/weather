@@ -142,8 +142,156 @@
     ok("no sideways scroll at 375px", de.scrollWidth <= de.clientWidth, "scrollWidth " + de.scrollWidth + ", clientWidth " + de.clientWidth);
   }
 
+  // Accounts (spec 0001, criteria 1-11; 12 needs a real Supabase project)
+  async function accounts() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const SESSION = { user: U };
+    const GOOD = "Abcdefghi1";
+    const shown = id => !$("screen-" + id).hidden;
+    const text = id => $(id).textContent;
+    const submit = id => $(id).dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+    const click = id => $(id).click();
+    const settle = () => wait(60);
+    const signedIn = async () => { sb.replies["auth.getSession"] = { data: { session: SESSION }, error: null }; await loadPage(1280); };
+
+    // 1. No session
+    sb.replies["auth.getSession"] = { data: { session: null }, error: null };
+    await loadPage(1280);
+    ok("1 no session shows Sign in", shown("signin") && !shown("shell") && !shown("settings"));
+    ok("1 Sign in form has its controls", $("signin-email") && $("signin-password") && text("signin-submit") === "Sign in" &&
+      text("to-forgot") === "Forgot password?" && text("to-signup") === "Create an account");
+    ok("1 account header hidden", $("account").hidden);
+
+    // 2. Stored session; sign-in form never visible while loading
+    sb.replies["auth.getSession"] = { data: { session: SESSION }, error: null };
+    await loadPage(1280);
+    ok("2 shell shows email", shown("shell") && text("account-email") === U.email && !$("account").hidden);
+    ok("2 shell has Settings, Sign out, cities placeholder", text("settings-open") === "Settings" && text("sign-out") === "Sign out" &&
+      text("cities-title") === "Your cities" && $("screen-shell").textContent.includes("No cities yet."));
+    ok("2 sign in not visible after load", !shown("signin"));
+    sb.replies["auth.getSession"] = new Promise(() => {});
+    await loadPage(1280);
+    ok("2 loading screen while session pending", shown("loading") && !shown("signin"));
+
+    // 3. Sign up validation
+    sb.replies["auth.getSession"] = { data: { session: null }, error: null };
+    await loadPage(1280);
+    click("to-signup");
+    const RULE = "Use at least 10 characters, with upper case, lower case and a digit.";
+    for (const [label, pw] of [["short", "Abcdef1"], ["no upper", "abcdefghi1"], ["no lower", "ABCDEFGHI1"], ["no digit", "Abcdefghij"]]) {
+      type($("signup-email"), "new@example.com"); type($("signup-password"), pw); type($("signup-confirm"), pw);
+      submit("signup-form"); await settle();
+      eq("3 rule message, " + label, text("signup-msg"), RULE);
+    }
+    type($("signup-password"), GOOD); type($("signup-confirm"), GOOD + "x");
+    submit("signup-form"); await settle();
+    eq("3 mismatch message", text("signup-msg"), "Passwords don't match.");
+    eq("3 signUp not called", sbCalls("auth.signUp").length, 0);
+
+    // 4. Valid sign up, then unconfirmed sign in
+    type($("signup-confirm"), GOOD);
+    sb.replies["auth.signUp"] = { data: { user: U, session: null }, error: null };
+    submit("signup-form"); await settle();
+    const su = sbCalls("auth.signUp");
+    eq("4 signUp called once", su.length, 1);
+    ok("4 signUp has typed email and password", su[0] && su[0].args[0].email === "new@example.com" && su[0].args[0].password === GOOD);
+    eq("4 check-your-email message", text("signup-msg"), "Check your email to confirm your account.");
+    click("signup-to-signin");
+    sb.replies["auth.signInWithPassword"] = { data: null, error: SB_ERR.unconfirmed };
+    type($("signin-email"), "new@example.com"); type($("signin-password"), GOOD);
+    submit("signin-form"); await settle();
+    eq("4 unconfirmed message", text("signin-msg"), "Please confirm your email first.");
+    ok("4 resend button shown", !$("signin-resend").hidden && text("signin-resend") === "Resend confirmation email");
+
+    // 5. Invalid credentials
+    sb.replies["auth.signInWithPassword"] = { data: null, error: SB_ERR.invalid };
+    type($("signin-password"), "wrong");
+    submit("signin-form"); await settle();
+    eq("5 invalid message", text("signin-msg"), "Email or password is incorrect.");
+    eq("5 email kept", $("signin-email").value, "new@example.com");
+    eq("5 password cleared", $("signin-password").value, "");
+
+    // 6. Network failure, then double submit
+    sb.replies["auth.signInWithPassword"] = { data: null, error: SB_ERR.network };
+    type($("signin-password"), "x");
+    submit("signin-form"); await settle();
+    eq("6 network message", text("signin-msg"), "Can't reach the server. Check your connection and try again.");
+    ok("6 Sign in button re-enabled", !$("signin-submit").disabled);
+    sb.calls = [];
+    sb.replies["auth.signInWithPassword"] = new Promise(() => {});
+    submit("signin-form"); submit("signin-form"); await settle();
+    eq("6 double submit calls signIn once", sbCalls("auth.signInWithPassword").length, 1);
+    ok("6 button disabled while pending", $("signin-submit").disabled);
+
+    // 7. Sign out
+    await signedIn();
+    click("sign-out"); await settle();
+    eq("7 signOut called", sbCalls("auth.signOut").length, 1);
+    ok("7 back on Sign in, no email", shown("signin") && text("account-email") === "" && $("account").hidden);
+
+    // 8. Forgot password
+    sb.replies["auth.getSession"] = { data: { session: null }, error: null };
+    await loadPage(1280);
+    click("to-forgot");
+    type($("forgot-email"), "who@example.com");
+    const SENT = "If an account exists for that email, we've sent a reset link.";
+    submit("forgot-form"); await settle();
+    const rp = sbCalls("auth.resetPasswordForEmail");
+    ok("8 reset called with email and redirectTo", rp.length === 1 && rp[0].args[0] === "who@example.com" &&
+      rp[0].args[1].redirectTo === new win.URL(".", win.document.baseURI).href, JSON.stringify(rp[0] && rp[0].args));
+    eq("8 same message on success", text("forgot-msg"), SENT);
+    sb.replies["auth.resetPasswordForEmail"] = { data: null, error: { name: "AuthApiError", message: "User not found", status: 400, code: "user_not_found" } };
+    submit("forgot-form"); await settle();
+    eq("8 same message on user not found", text("forgot-msg"), SENT);
+
+    // 9. Password recovery
+    await loadPage(1280);
+    fireAuth("PASSWORD_RECOVERY", SESSION); await settle();
+    ok("9 recovery shows Set a new password", shown("reset") && text("reset-title") === "Set a new password");
+    sb.replies["auth.updateUser"] = { data: { user: U }, error: null };
+    type($("reset-password"), GOOD); type($("reset-confirm"), GOOD);
+    submit("reset-form"); await settle();
+    const uu = sbCalls("auth.updateUser");
+    ok("9 updateUser called with password", uu.length === 1 && uu[0].args[0].password === GOOD);
+    ok("9 shell with Password updated.", shown("shell") && text("shell-msg") === "Password updated.");
+
+    // 10. Unit preference
+    sb.replies["profiles.select"] = { data: null, error: null };
+    await signedIn();
+    click("settings-open");
+    ok("10 no profile row selects C", doc.querySelector('input[name="unit"][value="C"]').checked);
+    const f = doc.querySelector('input[name="unit"][value="F"]');
+    f.checked = true; f.dispatchEvent(new win.Event("change", { bubbles: true })); await settle();
+    const up = sbCalls("profiles.upsert");
+    ok("10 upsert writes unit F for user", up.length === 1 && JSON.stringify(up[0].args[0][0].args[0]) === JSON.stringify({ id: "u1", unit: "F" }));
+    eq("10 Saved shown", text("unit-msg"), "Saved");
+    sb.replies["profiles.select"] = { data: { unit: "F" }, error: null };
+    await signedIn();
+    click("settings-open");
+    ok("10 reload with profile F selects F", doc.querySelector('input[name="unit"][value="F"]').checked);
+
+    // 11. 400px layout and labels
+    const noScroll = name => ok("11 no sideways scroll: " + name, doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+      doc.documentElement.scrollWidth + " > " + doc.documentElement.clientWidth);
+    const labelled = name => ok("11 every input labelled: " + name,
+      [...doc.querySelectorAll("input")].every(i => i.labels && i.labels.length), "an input has no label");
+    sb.replies["auth.getSession"] = { data: { session: null }, error: null };
+    await loadPage(400);
+    noScroll("sign in"); labelled("all screens");
+    click("to-signup"); noScroll("sign up");
+    await signedIn(); await loadPage(400);
+    noScroll("shell");
+    click("settings-open"); noScroll("settings");
+
+    // Config missing
+    sb.replies = {}; sb.config = { supabaseUrl: "", supabaseAnonKey: "" };
+    await loadPage(1280);
+    ok("unavailable screen when config is empty", shown("unavailable") && !shown("signin") &&
+      text("screen-unavailable").includes("Accounts are unavailable right now. Please reload the page later."));
+  }
+
   // --- Runner ---
-  const GROUPS = [["Page", page], ["Layout", layout]];
+  const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts]];
 
   async function run() {
     const saved = {};
