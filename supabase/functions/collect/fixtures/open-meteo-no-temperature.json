@@ -1,0 +1,14 @@
+{
+  "latitude": 48.86,
+  "longitude": 2.3399997,
+  "timezone": "UTC",
+  "current": {
+    "time": "2026-10-25T11:00",
+    "interval": 900,
+    "apparent_temperature": 12.1,
+    "relative_humidity_2m": 72,
+    "wind_speed_10m": 4.2,
+    "precipitation": 0.1,
+    "weather_code": 3
+  }
+}

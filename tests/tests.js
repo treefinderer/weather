@@ -14,14 +14,30 @@
   const SB_ERR = {
     network: { name: "AuthRetryableFetchError", message: "Failed to fetch", status: 0 },
     invalid: { name: "AuthApiError", message: "Invalid login credentials", status: 400, code: "invalid_credentials" },
-    unconfirmed: { name: "AuthApiError", message: "Email not confirmed", status: 400, code: "email_not_confirmed" }
+    unconfirmed: { name: "AuthApiError", message: "Email not confirmed", status: 400, code: "email_not_confirmed" },
+    duplicate: { message: 'duplicate key value violates unique constraint "user_cities_pkey"', code: "23505", details: null, hint: null },
+    cityLimit: { message: "city_limit", code: "P0001", details: null, hint: "A user can follow up to 10 cities." }
+  };
+  // Open-Meteo geocoding replies (spec 0002), for mock.fetch[GEO_URL]. The last "par" result has no timezone, so the page drops it.
+  const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
+  const GEO = {
+    par: { results: [
+      { id: 2988507, name: "Paris", latitude: 48.85341, longitude: 2.3488, country_code: "FR", admin1: "Île-de-France", country: "France", timezone: "Europe/Paris" },
+      { id: 4717560, name: "Paris", latitude: 33.66094, longitude: -95.55551, country_code: "US", admin1: "Texas", country: "United States", timezone: "America/Chicago" },
+      { id: 3171457, name: "Parma", latitude: 44.79935, longitude: 10.32618, country_code: "IT", admin1: "Emilia-Romagna", country: "Italy", timezone: "Europe/Rome" },
+      { id: 6942553, name: "Paradise", latitude: 36.09719, longitude: -115.14666, country_code: "US", country: "United States" }
+    ], generationtime_ms: 0.6 },
+    none: { generationtime_ms: 0.4 }
   };
 
   // --- Mocks, called from inside the page by the script injected below ---
-  const mock = { calls: [], errors: [] };
+  //   mock.calls    every fetched URL. mock.fetch: URL prefix -> reply object (sent as JSON) or a function (url) returning one,
+  //                 reset before each group. Unmatched URLs and null replies fail like a network error.
+  const mock = { calls: [], errors: [], fetch: {} };
   // Mocked supabase-js, reset before each group. Set sb.replies before loadPage when the page reads them on load.
-  //   sb.calls      every call: { method, args }. Methods are "createClient", "auth.<name>" and "<table>.<first op>"
-  //                 (e.g. "profiles.select", "profiles.upsert"; args[0] is the chain, [{ op, args }, ...]).
+  //   sb.calls      every call: { method, args }. Methods are "createClient", "auth.<name>", "rpc.<function>" (args[0] is
+  //                 the parameters object) and "<table>.<first op>" (e.g. "profiles.select", "user_cities.delete",
+  //                 "latest_readings.select"; args[0] is the chain, [{ op, args }, ...], including filters like eq).
   //   sb.replies    method -> { data, error }, a function (...args) returning one, or a Promise of one (slow replies).
   //                 Unscripted methods reply { data: null, error: null }.
   //   sb.config     the page's window.WX_CONFIG; sb.loaded = false simulates the CDN script failing to load.
@@ -38,7 +54,10 @@
     // Returns the reply body as JSON text, or null for a network failure.
     respond(url) {
       mock.calls.push(url);
-      return null;
+      const prefix = Object.keys(mock.fetch).find(p => url.startsWith(p));
+      const reply = prefix === undefined ? null : mock.fetch[prefix];
+      const body = typeof reply === "function" ? reply(url) : reply;
+      return body == null ? null : JSON.stringify(body);
     },
     error(msg) { mock.errors.push(msg); },
     sbSetup() { return { loaded: sb.loaded, config: sb.config }; },
@@ -82,7 +101,8 @@
       q.then = function (done, fail) { return call(table + "." + (chain[0] ? chain[0].op : "select"), [chain]).then(done, fail); };
       return q;
     }
-    return { auth: auth, from: from };
+    function rpc(name, params) { return call("rpc." + name, [params]); }
+    return { auth: auth, from: from, rpc: rpc };
   } };
 })();
 <\/script>`;
@@ -311,7 +331,7 @@
         h.textContent = name;
         $log.appendChild(h);
         clearStore();
-        Object.assign(mock, { calls: [] });
+        Object.assign(mock, { calls: [], fetch: {} });
         resetSupabase();
         try { await fn(); } catch (e) { ok("group ran to the end", false, e && e.stack ? e.stack.split("\n")[0] : String(e)); }
       }
