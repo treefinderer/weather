@@ -69,7 +69,7 @@ h1 { margin: 0 0 8px; font-size: 28px; }
 .screen-head h2 { margin: 0; }
 .field { margin-bottom: 12px; }
 .field label { display: block; margin-bottom: 4px; font-weight: 600; }
-.field input { display: block; width: 100%; padding: 10px 12px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.field input, .field select { display: block; width: 100%; min-width: 0; padding: 10px 12px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
 .hint { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
 .msg { margin: 0 0 12px; overflow-wrap: anywhere; }
 .msg:empty { display: none; }
@@ -146,3 +146,33 @@ form .link { display: block; margin-bottom: 12px; }
 .history-table .slot-start { border-left: 1px solid var(--chart-grid); }
 .history-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 12px; }
 .history-page-info { margin: 0; color: var(--muted); }
+
+/* Email notifications (notifications.js) */
+.notice { max-width: 440px; margin-bottom: 16px; }
+.notice h2 { margin: 0 0 8px; font-size: 18px; }
+.notice .btn-secondary { margin-top: 4px; }
+.notify { min-width: 0; }
+.screen .notify h4 { margin: 20px 0 8px; font-size: 16px; }
+#notify-retry { margin-bottom: 12px; }
+.notify-body, .notify-options, .alert-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.check input { flex: none; width: 18px; height: 18px; margin: 0; }
+.notify-row { display: flex; flex-wrap: wrap; gap: 0 12px; }
+.notify-row .field:first-child { flex: 1 1 110px; }
+.notify-row .field:last-child { flex: 3 1 200px; min-width: 0; }
+.notify-tz-hint { margin: -4px 0 12px; }
+.notify-tz-hint .hint { margin: 0 0 4px; }
+.notify-options > .hint { margin: -4px 0 12px; }
+.notify-weekly { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; }
+.notify-weekly .check { flex: 1 1 140px; }
+.notify-weekly .field { flex: 1 1 140px; min-width: 0; }
+.notify-cities { min-width: 0; margin: 0 0 12px; padding: 0; border: 0; }
+.notify-cities legend, .alert-fields legend { padding: 0; margin-bottom: 8px; font-weight: 600; }
+.notify-nocity { margin: 0 0 12px; }
+.alert-list { margin: 0 0 16px; padding: 0; list-style: none; }
+.alert-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.alert-text { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.alert-item .btn-secondary { flex: none; padding: 6px 12px; }
+.alert-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 0 12px; }
+.field-error { margin: 4px 0 0; font-size: 14px; }
+.notify fieldset:disabled .check { cursor: default; color: var(--muted); }

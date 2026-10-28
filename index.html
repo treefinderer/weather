@@ -17,6 +17,12 @@
     </div>
   </header>
 
+  <section class="card notice" id="unsubscribe" aria-labelledby="unsubscribe-title" hidden>
+    <h2 id="unsubscribe-title">Email notifications</h2>
+    <p class="msg" id="unsubscribe-msg" role="status"></p>
+    <button type="button" class="btn-secondary" id="unsubscribe-retry" hidden>Try again</button>
+  </section>
+
   <section class="screen" id="screen-loading" aria-labelledby="loading-title">
     <h2 class="visually-hidden" id="loading-title" tabindex="-1">Loading</h2>
     <p class="lede" role="status">Loading…</p>
@@ -207,6 +213,114 @@
       <label><input type="radio" name="unit" value="F"> °F</label>
       <p class="msg" id="unit-msg" aria-live="polite"></p>
     </fieldset>
+    <section class="notify" id="notify" aria-labelledby="notify-title">
+      <h3 id="notify-title">Email notifications</h3>
+      <p class="lede" id="notify-status" role="status">Loading notification settings…</p>
+      <button type="button" class="btn-secondary" id="notify-retry" hidden>Try again</button>
+      <p class="msg" id="notify-denied" hidden>Email notifications aren't available for your account yet. While the app is in testing, emails can only go to approved addresses.</p>
+      <fieldset class="notify-body" id="notify-body" disabled hidden>
+        <legend class="visually-hidden">Email notification settings</legend>
+        <form id="notify-form" novalidate>
+          <label class="check"><input type="checkbox" id="notify-enabled"> Send me email notifications</label>
+          <fieldset class="notify-options" id="notify-options">
+            <legend class="visually-hidden">Notification options</legend>
+            <div class="notify-row">
+              <div class="field">
+                <label for="notify-hour">Send time</label>
+                <select id="notify-hour"></select>
+              </div>
+              <div class="field">
+                <label for="notify-tz">Timezone</label>
+                <select id="notify-tz" aria-describedby="notify-tz-hint"></select>
+              </div>
+            </div>
+            <div class="notify-tz-hint" id="notify-tz-box" hidden>
+              <p class="hint" id="notify-tz-hint"></p>
+              <button type="button" class="link" id="notify-tz-device">Use this device's timezone</button>
+            </div>
+            <p class="hint">The send time applies to both digests.</p>
+            <label class="check"><input type="checkbox" id="notify-daily"> Daily digest</label>
+            <div class="notify-weekly">
+              <label class="check"><input type="checkbox" id="notify-weekly"> Weekly digest</label>
+              <div class="field">
+                <label for="notify-day">Day</label>
+                <select id="notify-day">
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                  <option value="7">Sunday</option>
+                </select>
+              </div>
+            </div>
+            <fieldset class="notify-cities" id="notify-cities" aria-describedby="notify-cities-msg">
+              <legend>Cities in digests</legend>
+              <p class="hint notify-nocity" id="notify-cities-none" hidden>Add a city first to choose digest cities and alerts.</p>
+              <div id="notify-city-list"></div>
+              <p class="msg msg-error" id="notify-cities-msg"></p>
+            </fieldset>
+          </fieldset>
+          <p class="msg" id="notify-msg" aria-live="polite"></p>
+          <button type="submit" class="btn" id="notify-save">Save notifications</button>
+        </form>
+        <h4 id="alerts-title">Range alerts</h4>
+        <p class="hint notify-nocity" id="alerts-none" hidden>Add a city first to choose digest cities and alerts.</p>
+        <div id="alerts-area">
+          <ul class="alert-list" id="alert-list" aria-labelledby="alerts-title"></ul>
+          <form class="alert-form" id="alert-form" novalidate>
+            <fieldset class="alert-fields" id="alert-fields">
+              <legend>Add an alert</legend>
+              <div class="alert-grid">
+                <div class="field">
+                  <label for="alert-city">City</label>
+                  <select id="alert-city"></select>
+                </div>
+                <div class="field">
+                  <label for="alert-metric">Measure</label>
+                  <select id="alert-metric">
+                    <option value="temperature">Temperature</option>
+                    <option value="feels_like">Feels like</option>
+                    <option value="wind">Wind</option>
+                    <option value="precipitation">Precipitation</option>
+                    <option value="humidity">Humidity</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="alert-condition">When</label>
+                  <select id="alert-condition">
+                    <option value="outside">outside the range</option>
+                    <option value="inside">inside the range</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="alert-slot">Reading</label>
+                  <select id="alert-slot">
+                    <option value="day">Day (12pm)</option>
+                    <option value="night">Night (12am)</option>
+                    <option value="both" selected>Both</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="alert-min" id="alert-min-label">Min (°C)</label>
+                  <input id="alert-min" type="number" step="any" inputmode="decimal" aria-describedby="alert-min-error">
+                  <p class="msg msg-error field-error" id="alert-min-error"></p>
+                </div>
+                <div class="field">
+                  <label for="alert-max" id="alert-max-label">Max (°C)</label>
+                  <input id="alert-max" type="number" step="any" inputmode="decimal" aria-describedby="alert-max-error">
+                  <p class="msg msg-error field-error" id="alert-max-error"></p>
+                </div>
+              </div>
+              <p class="msg msg-error" id="alert-limit" hidden>You can have up to 20 alerts. Delete one to add another.</p>
+              <p class="msg" id="alert-msg" aria-live="polite"></p>
+              <button type="submit" class="btn-secondary" id="alert-add">Add alert</button>
+            </fieldset>
+          </form>
+        </div>
+      </fieldset>
+    </section>
     <form id="password-form">
       <h3>Change password</h3>
       <div class="field">
@@ -234,5 +348,6 @@
 <script src="cities.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <script src="history.js"></script>
+<script src="notifications.js"></script>
 </body>
 </html>

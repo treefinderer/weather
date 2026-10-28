@@ -31,9 +31,12 @@
   };
 
   // --- Mocks, called from inside the page by the script injected below ---
-  //   mock.calls    every fetched URL. mock.fetch: URL prefix -> reply object (sent as JSON) or a function (url) returning one,
-  //                 reset before each group. Unmatched URLs and null replies fail like a network error.
-  const mock = { calls: [], errors: [], fetch: {} };
+  //   mock.calls    every fetched URL. mock.fetch: URL prefix -> reply object (sent as JSON) or a function (url, init) returning
+  //                 one, reset before each group. Unmatched URLs and null replies fail like a network error.
+  //   mock.requests every fetch as { url, method, body } (body as the page sent it, e.g. a JSON string).
+  //   mock.search   the page's query string (e.g. "?unsubscribe=abc"), set before loadPage. A srcdoc page has none, so the
+  //                 page reads it from window.WX_TEST_SEARCH (spec 0004's unsubscribe link). Reset before each group.
+  const mock = { calls: [], requests: [], errors: [], fetch: {}, search: null };
   // Mocked supabase-js, reset before each group. Set sb.replies before loadPage when the page reads them on load.
   //   sb.calls      every call: { method, args }. Methods are "createClient", "auth.<name>", "rpc.<function>" (args[0] is
   //                 the parameters object) and "<table>.<first op>" (e.g. "profiles.select", "user_cities.delete",
@@ -70,14 +73,16 @@
   const fireAuth = (event, session) => sb.listeners.forEach(cb => cb(event, session));
   window.WxTest = {
     // Returns the reply body as JSON text, or null for a network failure.
-    respond(url) {
+    respond(url, init) {
       mock.calls.push(url);
+      mock.requests.push({ url, method: (init && init.method) || "GET", body: init ? init.body : undefined });
       const prefix = Object.keys(mock.fetch).find(p => url.startsWith(p));
       const reply = prefix === undefined ? null : mock.fetch[prefix];
-      const body = typeof reply === "function" ? reply(url) : reply;
+      const body = typeof reply === "function" ? reply(url, init) : reply;
       return body == null ? null : JSON.stringify(body);
     },
     error(msg) { mock.errors.push(msg); },
+    search() { return mock.search; },
     sbSetup() { return { loaded: sb.loaded, config: sb.config }; },
     sbCall(method, args) {
       sb.calls.push({ method, args });
@@ -110,11 +115,13 @@
     window.Chart = function (canvas, config) { this.record = T.chartMade(canvas, config); this.config = config; };
     window.Chart.prototype.destroy = function () { this.record.destroyed = true; };
   }
-  window.fetch = function (url) {
-    var text = T.respond(String(url));
+  window.fetch = function (url, init) {
+    var text = T.respond(String(url), init);
     if (text === null) return Promise.reject(new TypeError("Failed to fetch (mocked)"));
     return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(JSON.parse(text)); } });
   };
+  var search = T.search();
+  if (search != null) window.WX_TEST_SEARCH = search;
   // Stand-ins for config.js and the supabase-js CDN script (both stripped from the page); calls go to WxTest.sbCall.
   var setup = T.sbSetup();
   window.WX_CONFIG = { supabaseUrl: setup.config.supabaseUrl, supabaseAnonKey: setup.config.supabaseAnonKey };
@@ -687,7 +694,7 @@
         h.textContent = name;
         $log.appendChild(h);
         clearStore();
-        Object.assign(mock, { calls: [], fetch: {} });
+        Object.assign(mock, { calls: [], requests: [], fetch: {}, search: null });
         resetSupabase();
         resetChart();
         clock = { now: null };
