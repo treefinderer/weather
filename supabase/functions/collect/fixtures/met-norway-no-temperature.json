@@ -1,0 +1,15 @@
+{
+  "type": "Feature",
+  "properties": {
+    "meta": { "updated_at": "2026-10-25T10:43:12Z", "units": {} },
+    "timeseries": [
+      {
+        "time": "2026-10-25T11:00:00Z",
+        "data": {
+          "instant": { "details": { "relative_humidity": 75.2, "wind_speed": 3.9 } },
+          "next_1_hours": { "summary": { "symbol_code": "cloudy" }, "details": { "precipitation_amount": 0.2 } }
+        }
+      }
+    ]
+  }
+}

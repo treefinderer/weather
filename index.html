@@ -105,7 +105,21 @@
   <section class="screen" id="screen-shell" aria-labelledby="cities-title" hidden>
     <p class="msg msg-ok" id="shell-msg" aria-live="polite"></p>
     <h2 id="cities-title" tabindex="-1">Your cities</h2>
-    <p class="lede">No cities yet.</p>
+    <p class="cities-count" id="cities-count" hidden></p>
+    <form class="city-search" id="city-search" role="search" novalidate>
+      <label for="city-query">Search for a city</label>
+      <div class="city-search-row">
+        <input id="city-query" type="search" autocomplete="off" maxlength="100">
+        <button type="submit" class="btn" id="city-search-submit">Search</button>
+      </div>
+    </form>
+    <p class="msg msg-error" id="cities-limit" hidden>You can follow up to 10 cities. Remove one to add another.</p>
+    <p class="msg" id="search-msg" aria-live="polite"></p>
+    <ul class="city-results" id="city-results" aria-label="Search results" hidden></ul>
+    <p class="msg" id="cities-msg" aria-live="polite"></p>
+    <p class="lede" id="cities-status" aria-live="polite">Loading your cities…</p>
+    <button type="button" class="btn-secondary" id="cities-retry" hidden>Try again</button>
+    <ul class="city-list" id="city-list" aria-labelledby="cities-title"></ul>
   </section>
 
   <section class="screen card" id="screen-settings" aria-labelledby="settings-title" hidden>
@@ -143,5 +157,6 @@
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script src="auth.js"></script>
+<script src="cities.js"></script>
 </body>
 </html>
