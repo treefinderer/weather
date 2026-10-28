@@ -1,5 +1,5 @@
 // Your cities: search (Open-Meteo geocoding), follow up to 10 cities, remove them, and show each city's
-// latest day and night reading per source in the user's unit (spec 0002). Uses Wx.supabase, Wx.user and Wx.unit.
+// latest day and night reading per source in the user's unit (spec 0002). Uses Wx.supabase, Wx.user, Wx.unit and Wx.fmt.
 (function () {
   "use strict";
   const Wx = window.Wx;
@@ -8,7 +8,6 @@
   const TIMEOUT_MS = 20000;
   const SEARCH_TIMEOUT_MS = 10000;
   const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
-  const NONE = "–";
   const SOURCES = [["open-meteo", "Open-Meteo"], ["met-norway", "MET Norway"]];
   const SLOTS = [["day", "Day (12pm)"], ["night", "Night (12am)"]];
   const MSG = {
@@ -75,27 +74,8 @@
     return Promise.race([go, timeout]).finally(() => clearTimeout(timer));
   }
 
-  // --- Units ---
-  const round = n => String(Math.round(n));
-  function temp(c) {
-    if (c == null) return NONE;
-    return Wx.unit === "F" ? round(c * 9 / 5 + 32) + "°F" : round(c) + "°C";
-  }
-  function wind(ms) {
-    if (ms == null) return NONE;
-    return Wx.unit === "F" ? round(ms * 2.236936) + " mph" : round(ms * 3.6) + " km/h";
-  }
-  function rain(mm) {
-    if (mm == null) return NONE;
-    return Wx.unit === "F" ? (mm / 25.4).toFixed(2) + " in" : (Math.round(mm * 10) / 10) + " mm";
-  }
-  const pct = v => (v == null ? NONE : round(v) + "%");
-  // "2026-10-24" -> "Oct 24"
-  function day(iso) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
-    if (!m) return "";
-    return new Date(Date.UTC(+m[1], m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-  }
+  // --- Units (shared with the history view) ---
+  const { temp, wind, rain, pct, day } = Wx.fmt;
 
   // --- Rendering ---
   function renderCount() {
@@ -165,13 +145,22 @@
     title.appendChild(el("h3", "city-name", place(c)));
     title.appendChild(el("p", "city-tz", c.timezone));
     head.appendChild(title);
+    const actions = el("div", "city-actions");
+    // history.js opens the view from the hash and returns focus to this button.
+    const hist = el("button", "btn-secondary", "History");
+    hist.type = "button";
+    hist.dataset.history = c.id;
+    hist.setAttribute("aria-label", "History for " + place(c));
+    hist.addEventListener("click", () => { location.hash = "#history/" + c.id + "/30d/avg"; });
+    actions.appendChild(hist);
     const btn = el("button", "btn-secondary", "Remove");
     btn.type = "button";
     btn.dataset.remove = c.id;
     btn.setAttribute("aria-label", "Remove " + place(c));
     btn.disabled = removing.has(c.id);
     btn.addEventListener("click", () => remove(c));
-    head.appendChild(btn);
+    actions.appendChild(btn);
+    head.appendChild(actions);
     li.appendChild(head);
     const fail = el("p", "msg msg-error", removeFailed.has(c.id) ? MSG.removeFailed : "");
     fail.setAttribute("aria-live", "polite");

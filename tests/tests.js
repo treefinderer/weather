@@ -42,6 +42,8 @@
   //                 Unscripted methods reply { data: null, error: null }.
   //   sb.config     the page's window.WX_CONFIG; sb.loaded = false simulates the CDN script failing to load.
   //   fireAuth(event, session) calls the page's onAuthStateChange listeners.
+  //   Readings are paged with range(); script them with sb.replies["readings.select"] = pages(rows), and the history
+  //   view's city with sb.replies["cities.select"] = { data: cityRow or null, error } (its chain ends with maybeSingle).
   let sb = null;
   function resetSupabase() {
     sb = { calls: [], replies: {}, listeners: [], loaded: true,
@@ -49,6 +51,22 @@
   }
   resetSupabase();
   const sbCalls = method => sb.calls.filter(c => c.method === method);
+  // The arguments of every op in a query chain, e.g. ops(chain, "eq") -> [["city_id", 5]].
+  const ops = (chain, op) => chain.filter(c => c.op === op).map(c => c.args);
+  // A reply function that serves rows the way PostgREST pages them: range(a, b) gets rows a..b, at most 1000 per reply.
+  const pages = rows => chain => {
+    const r = ops(chain, "range")[0] || [0, 999];
+    return { data: rows.slice(r[0], Math.min(r[1], r[0] + 999) + 1), error: null };
+  };
+  // Chart.js stand-in, reset before each group. chart.loaded = false leaves window.Chart undefined (CDN failure).
+  //   chart.made    every chart constructed: { canvas, config, destroyed }, in order.
+  let chart = null;
+  function resetChart() { chart = { loaded: true, made: [] }; }
+  resetChart();
+  const liveCharts = () => chart.made.filter(c => !c.destroyed);
+  // Fixed clock for the page, reset before each group: set clock.now (ms, e.g. Date.UTC(2026, 9, 27, 12)) before loadPage.
+  // new Date() and Date.now() in the page then return that moment.
+  let clock = { now: null };
   const fireAuth = (event, session) => sb.listeners.forEach(cb => cb(event, session));
   window.WxTest = {
     // Returns the reply body as JSON text, or null for a network failure.
@@ -66,7 +84,10 @@
       const r = sb.replies[method];
       return (typeof r === "function" ? r.apply(null, args) : r) || { data: null, error: null };
     },
-    sbListen(cb) { sb.listeners.push(cb); }
+    sbListen(cb) { sb.listeners.push(cb); },
+    chartSetup() { return chart.loaded; },
+    chartMade(canvas, config) { const c = { canvas, config, destroyed: false }; chart.made.push(c); return c; },
+    clockNow() { return clock.now; }
   };
   const INJECT = `<base href="../"><script>
 (function () {
@@ -75,6 +96,20 @@
   window.addEventListener("unhandledrejection", function (e) { T.error("unhandledrejection: " + ((e.reason && e.reason.message) || e.reason)); });
   var consoleError = console.error;
   console.error = function () { T.error("console.error: " + Array.prototype.join.call(arguments, " ")); return consoleError.apply(console, arguments); };
+  // Fixed clock: argument-less new Date() and Date.now() return clock.now.
+  var now = T.clockNow();
+  if (now != null) {
+    var RealDate = Date;
+    window.Date = class extends RealDate {
+      constructor() { if (arguments.length) super(...arguments); else super(now); }
+      static now() { return now; }
+    };
+  }
+  // Stand-in for the Chart.js CDN script (stripped from the page): records each config and destroy().
+  if (T.chartSetup()) {
+    window.Chart = function (canvas, config) { this.record = T.chartMade(canvas, config); this.config = config; };
+    window.Chart.prototype.destroy = function () { this.record.destroyed = true; };
+  }
   window.fetch = function (url) {
     var text = T.respond(String(url));
     if (text === null) return Promise.reject(new TypeError("Failed to fetch (mocked)"));
@@ -95,7 +130,8 @@
     });
     function from(table) {
       var chain = [], q = {};
-      ["select", "insert", "update", "upsert", "delete", "eq", "neq", "match", "order", "limit", "single", "maybeSingle"].forEach(function (op) {
+      ["select", "insert", "update", "upsert", "delete", "eq", "neq", "gt", "gte", "lt", "lte", "in", "is", "match", "order",
+        "limit", "range", "single", "maybeSingle"].forEach(function (op) {
         q[op] = function () { chain.push({ op: op, args: Array.prototype.slice.call(arguments) }); return q; };
       });
       q.then = function (done, fail) { return call(table + "." + (chain[0] ? chain[0].op : "select"), [chain]).then(done, fail); };
@@ -464,7 +500,7 @@
       pageSrc = (await (await fetch("../index.html", { cache: "no-store" })).text())
         // Offline: no web fonts (the fallback stacks apply).
         .replace(/<link[^>]+fonts\.(googleapis|gstatic)\.com[^>]*>/g, "")
-        // Offline: no supabase-js from the CDN and no real config; INJECT provides both.
+        // Offline: no supabase-js or Chart.js from the CDN and no real config; INJECT provides stand-ins for all three.
         .replace(/<script[^>]+cdn\.jsdelivr\.net[^>]*><\/script>/g, "")
         .replace(/<script src="config\.js"><\/script>/, "")
         .replace(/<head>/i, "<head>" + INJECT);
@@ -477,6 +513,8 @@
         clearStore();
         Object.assign(mock, { calls: [], fetch: {} });
         resetSupabase();
+        resetChart();
+        clock = { now: null };
         try { await fn(); } catch (e) { ok("group ran to the end", false, e && e.stack ? e.stack.split("\n")[0] : String(e)); }
       }
       group = "Console";
