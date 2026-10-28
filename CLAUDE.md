@@ -9,7 +9,7 @@ The `pages` GitHub Actions workflow deploys the frontend on every push to `main`
 - **Frontend:** static HTML/CSS/JS on GitHub Pages. It talks to Supabase with `supabase-js`, loaded from jsDelivr at a pinned exact version.
 - **Backend:** Supabase: Postgres (SQL), Supabase Auth (email + password, password-reset emails), Row Level Security so each user sees only their own rows, and a scheduled Edge Function that collects readings.
 - **Weather sources:** keyless only, Open-Meteo and MET Norway (sends a `User-Agent` naming the app). Each reading is stored per source.
-- **Email notifications:** not decided yet. They come last (spec 0004).
+- **Email notifications (spec 0004):** sent through Resend's API from an Edge Function. The `RESEND_API_KEY` is kept only as a Supabase secret. There is no verified domain yet (owner, 2026-10-28), so Resend delivers only to the owner's own address until a domain is added. The sender address must be configurable without a code change.
 - **Roadmap:** 0001 accounts (sign up, sign in, password reset, °C/°F) → 0002 cities (up to 10) + twice-daily collection → 0003 history table, graph and charts → 0004 notifications.
 
 ## Files
