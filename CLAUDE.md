@@ -21,7 +21,7 @@ The `pages` GitHub Actions workflow deploys the frontend on every push to `main`
 
 ## Rules
 
-- No build step. The only runtime library is `supabase-js` (plus a chart library once spec 0003 picks one), each from a pinned CDN URL. Colors are CSS tokens on `:root` with both dark-mode overrides. Fonts from Google Fonts only, always with a fallback stack.
+- No build step. The only runtime libraries are `supabase-js` and Chart.js 4 (spec 0003), each from a pinned CDN URL. Colors are CSS tokens on `:root` with both dark-mode overrides. Fonts from Google Fonts only, always with a fallback stack.
 - Must work at about 400px with no sideways scroll, and with keyboard only.
 - The Supabase project URL and anon key may be committed (they are public by design, and RLS protects the data). The service-role key and any other secret must never be committed. They live only in Supabase secrets.
 - Every table has RLS enabled, with policies limited to `auth.uid()`.
