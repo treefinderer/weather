@@ -1,0 +1,12 @@
+[
+  { "city_id": 1, "source": "open-meteo", "slot": "night", "local_date": "2026-10-28", "fetched_at": "2026-10-28T00:05:10Z",
+    "temperature_c": 14.0, "feels_like_c": 12.5, "humidity_pct": 81, "wind_speed_ms": 3.0, "precipitation_mm": 0, "weather_code": "3" },
+  { "city_id": 1, "source": "met-norway", "slot": "night", "local_date": "2026-10-28", "fetched_at": "2026-10-28T00:05:12Z",
+    "temperature_c": 15.0, "feels_like_c": null, "humidity_pct": 79, "wind_speed_ms": 4.0, "precipitation_mm": 0.2, "weather_code": "cloudy" },
+  { "city_id": 1, "source": "open-meteo", "slot": "day", "local_date": "2026-10-28", "fetched_at": "2026-10-28T12:05:10Z",
+    "temperature_c": 30.0, "feels_like_c": 31.0, "humidity_pct": 40, "wind_speed_ms": 5.0, "precipitation_mm": 0, "weather_code": "0" },
+  { "city_id": 1, "source": "met-norway", "slot": "day", "local_date": "2026-10-28", "fetched_at": "2026-10-28T12:05:12Z",
+    "temperature_c": 32.4, "feels_like_c": null, "humidity_pct": 44, "wind_speed_ms": null, "precipitation_mm": 0, "weather_code": "clearsky_day" },
+  { "city_id": 2, "source": "met-norway", "slot": "day", "local_date": "2026-10-28", "fetched_at": "2026-10-28T11:05:12Z",
+    "temperature_c": 8.0, "feels_like_c": null, "humidity_pct": 90, "wind_speed_ms": 10.0, "precipitation_mm": 1.5, "weather_code": "rain" }
+]

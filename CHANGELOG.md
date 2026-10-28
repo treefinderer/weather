@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-28
+
+- Email notifications: daily and weekly weather digests and range alerts (at most one per alert per day), set up in Settings, with one-click unsubscribe. Limited to allowlisted addresses until a sending domain is added. ([spec 0004](docs/specs/0004-email-notifications.md))
+
 ## 2026-10-27
 
 - History: open any city's history to see a day-by-day table and a day/night temperature chart for the last 7, 30 or 90 days, 12 months or a custom range, from either source or their average, with weekly or monthly averages for longer periods. ([spec 0003](docs/specs/0003-history-views.md))

@@ -1,0 +1,4 @@
+[
+  { "id": 1, "name": "Lisbon", "country": "Portugal", "timezone": "Europe/Lisbon" },
+  { "id": 2, "name": "<b>\"A&B\"</b>", "country": "Testland", "timezone": "Europe/Berlin" }
+]

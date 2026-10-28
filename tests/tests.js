@@ -31,9 +31,12 @@
   };
 
   // --- Mocks, called from inside the page by the script injected below ---
-  //   mock.calls    every fetched URL. mock.fetch: URL prefix -> reply object (sent as JSON) or a function (url) returning one,
-  //                 reset before each group. Unmatched URLs and null replies fail like a network error.
-  const mock = { calls: [], errors: [], fetch: {} };
+  //   mock.calls    every fetched URL. mock.fetch: URL prefix -> reply object (sent as JSON) or a function (url, init) returning
+  //                 one, reset before each group. Unmatched URLs and null replies fail like a network error.
+  //   mock.requests every fetch as { url, method, body } (body as the page sent it, e.g. a JSON string).
+  //   mock.search   the page's query string (e.g. "?unsubscribe=abc"), set before loadPage. A srcdoc page has none, so the
+  //                 page reads it from window.WX_TEST_SEARCH (spec 0004's unsubscribe link). Reset before each group.
+  const mock = { calls: [], requests: [], errors: [], fetch: {}, search: null };
   // Mocked supabase-js, reset before each group. Set sb.replies before loadPage when the page reads them on load.
   //   sb.calls      every call: { method, args }. Methods are "createClient", "auth.<name>", "rpc.<function>" (args[0] is
   //                 the parameters object) and "<table>.<first op>" (e.g. "profiles.select", "user_cities.delete",
@@ -70,14 +73,16 @@
   const fireAuth = (event, session) => sb.listeners.forEach(cb => cb(event, session));
   window.WxTest = {
     // Returns the reply body as JSON text, or null for a network failure.
-    respond(url) {
+    respond(url, init) {
       mock.calls.push(url);
+      mock.requests.push({ url, method: (init && init.method) || "GET", body: init ? init.body : undefined });
       const prefix = Object.keys(mock.fetch).find(p => url.startsWith(p));
       const reply = prefix === undefined ? null : mock.fetch[prefix];
-      const body = typeof reply === "function" ? reply(url) : reply;
+      const body = typeof reply === "function" ? reply(url, init) : reply;
       return body == null ? null : JSON.stringify(body);
     },
     error(msg) { mock.errors.push(msg); },
+    search() { return mock.search; },
     sbSetup() { return { loaded: sb.loaded, config: sb.config }; },
     sbCall(method, args) {
       sb.calls.push({ method, args });
@@ -110,11 +115,13 @@
     window.Chart = function (canvas, config) { this.record = T.chartMade(canvas, config); this.config = config; };
     window.Chart.prototype.destroy = function () { this.record.destroyed = true; };
   }
-  window.fetch = function (url) {
-    var text = T.respond(String(url));
+  window.fetch = function (url, init) {
+    var text = T.respond(String(url), init);
     if (text === null) return Promise.reject(new TypeError("Failed to fetch (mocked)"));
     return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(JSON.parse(text)); } });
   };
+  var search = T.search();
+  if (search != null) window.WX_TEST_SEARCH = search;
   // Stand-ins for config.js and the supabase-js CDN script (both stripped from the page); calls go to WxTest.sbCall.
   var setup = T.sbSetup();
   window.WX_CONFIG = { supabaseUrl: setup.config.supabaseUrl, supabaseAnonKey: setup.config.supabaseAnonKey };
@@ -665,9 +672,189 @@
     eq("11 valid range sets the hash", win.location.hash, "#history/5/2026-09-01..2026-09-30/avg");
   }
 
+  // Notifications (spec 0004, criteria 1-7; 8-11 are Deno tests, 12 needs real Supabase + Resend)
+  async function notifications() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const settle = () => wait(60);
+    const text = id => $(id).textContent;
+    const submit = id => $(id).dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+    const change = (e, v) => { if (v !== undefined) e.value = v; e.dispatchEvent(new win.Event("change", { bubbles: true })); };
+    const ucRow = (id, name) => ({ city_id: id, added_at: "2026-10-0" + id + "T00:00:00Z", cities: { id, name } });
+    const rule = (id, extra) => Object.assign({ id, city_id: 1, metric: "temperature", condition: "outside", slot: "both",
+      min_value: 0, max_value: 30, created_at: "2026-10-2" + (id % 10) + "T00:00:00Z" }, extra);
+    // Opens Settings signed in. o: { allowed, settings, rules, unit, width }. Resets sb.calls after Settings has loaded.
+    const open = async (o) => {
+      o = o || {};
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["profiles.select"] = { data: o.unit ? { unit: o.unit } : null, error: null };
+      sb.replies["rpc.notify_allowed"] = { data: o.allowed === undefined ? true : o.allowed, error: null };
+      sb.replies["notification_settings.select"] = { data: o.settings || null, error: null };
+      sb.replies["alert_rules.select"] = { data: o.rules || [], error: null };
+      sb.replies["user_cities.select"] = { data: o.cities || [ucRow(1, "Lisbon"), ucRow(2, "Oslo")], error: null };
+      await loadPage(o.width || 1280);
+      $("settings-open").click(); await settle();
+      sb.calls = [];
+    };
+    const fill = (min, max, metric) => {
+      if (metric) change($("alert-metric"), metric);
+      type($("alert-min"), min); type($("alert-max"), max);
+    };
+    const inserts = () => sbCalls("alert_rules.insert").map(c => ops(c.args[0], "insert")[0][0]);
+    const setUnit = u => { const r = doc.querySelector('input[name="unit"][value="' + u + '"]'); r.checked = true; change(r); };
+
+    // 1. New user: off, disabled, one upsert, Saved.
+    await open();
+    ok("1 switch is off", !$("notify-enabled").checked);
+    ok("1 controls below are disabled", $("notify-options").disabled && $("alert-fields").disabled);
+    eq("1 default hour 07:00 and Monday", $("notify-hour").value + "/" + $("notify-day").value, "7/1");
+    $("notify-enabled").checked = true; change($("notify-enabled"));
+    ok("1 turning the switch on enables the controls", !$("notify-options").disabled && !$("alert-fields").disabled);
+    $("notify-daily").checked = true;
+    submit("notify-form"); await settle();
+    const ups = sbCalls("notification_settings.upsert");
+    eq("1 one upsert", ups.length, 1);
+    const row = ups[0] ? ops(ups[0].args[0], "upsert")[0][0] : {};
+    eq("1 upsert keys", Object.keys(row).filter(k => k !== "user_id").sort().join(","),
+      "daily,digest_city_ids,enabled,send_hour,timezone,weekly,weekly_day");
+    ok("1 upsert values", row.enabled === true && row.daily === true && row.weekly === false && row.send_hour === 7 &&
+      row.weekly_day === 1 && row.digest_city_ids === null && typeof row.timezone === "string" && row.timezone, JSON.stringify(row));
+    eq("1 status reads Saved.", text("notify-msg"), "Saved.");
+    // Switch off: controls disabled, Delete disabled, Save still works.
+    await open({ settings: { enabled: false, timezone: "UTC", send_hour: 7, daily: false, weekly: false, weekly_day: 1, digest_city_ids: null }, rules: [rule(1)] });
+    ok("1 Delete buttons disabled while off", [...doc.querySelectorAll("button[data-delete]")].every(b => b.disabled));
+    ok("1 Save enabled while off", !$("notify-save").disabled);
+    // Unticking one city stores the ids.
+    const boxes = [...doc.querySelectorAll("#notify-city-list input")];
+    eq("1 one checkbox per city, all ticked", boxes.length + "/" + boxes.filter(b => b.checked).length, "2/2");
+    boxes[1].checked = false;
+    submit("notify-form"); await settle();
+    const r2 = ops(sbCalls("notification_settings.upsert")[0].args[0], "upsert")[0][0];
+    eq("1 digest_city_ids lists ticked cities", JSON.stringify(r2.digest_city_ids), "[1]");
+    // No cities selected with a digest on is blocked.
+    sb.calls = [];
+    $("notify-enabled").checked = true; change($("notify-enabled")); $("notify-daily").checked = true;
+    boxes[0].checked = false;
+    submit("notify-form"); await settle();
+    eq("1 no city blocks saving", text("notify-cities-msg") + "|" + sbCalls("notification_settings.upsert").length,
+      "Choose at least one city for your digests.|0");
+
+    // 2. Not allowed
+    await open({ allowed: false });
+    ok("2 notice shown, form hidden", !$("notify-denied").hidden && $("notify-body").hidden);
+    ok("2 notice text", text("notify-denied").startsWith("Email notifications aren't available for your account yet."));
+    ok("2 body fieldset disabled", $("notify-body").disabled);
+    $("notify-body").hidden = false;
+    ok("2 no control can be changed", [...$("notify-body").querySelectorAll("input,select,button")].every(c => c.matches(":disabled")));
+    await open({ allowed: "yes" });
+    ok("2 a non-true reply fails closed", !$("notify-denied").hidden);
+
+    // 3. Validation
+    const on = { settings: { enabled: true, timezone: "UTC", send_hour: 7, daily: false, weekly: false, weekly_day: 1, digest_city_ids: null } };
+    await open(on);
+    fill("30", "10"); submit("alert-form"); await settle();
+    eq("3 min >= max message", text("alert-min-error"), "Min must be less than Max.");
+    fill("5", "5"); submit("alert-form"); await settle();
+    eq("3 equal bounds rejected", text("alert-min-error"), "Min must be less than Max.");
+    fill("", "10"); submit("alert-form"); await settle();
+    ok("3 empty Min shows an error", text("alert-min-error") !== "");
+    fill("1", ""); submit("alert-form"); await settle();
+    ok("3 empty Max shows an error", text("alert-max-error") !== "");
+    fill("10", "120", "humidity"); submit("alert-form"); await settle();
+    ok("3 humidity 120 shows an error", text("alert-max-error") !== "");
+    eq("3 no insert call", inserts().length, 0);
+    ok("3 error linked with aria-describedby", $("alert-min").getAttribute("aria-describedby") === "alert-min-error" &&
+      $("alert-max").getAttribute("aria-describedby") === "alert-max-error");
+
+    // 4. Units
+    await open(Object.assign({ unit: "F" }, on));
+    fill("86", "104"); submit("alert-form"); await settle();
+    let ins = inserts()[0] || {};
+    ok("4 86-104 F stored as 30-40 C", Math.abs(ins.min_value - 30) < 1e-9 && Math.abs(ins.max_value - 40) < 1e-9, JSON.stringify(ins));
+    eq("4 labels in F", text("alert-min-label"), "Min (°F)");
+    sb.replies["alert_rules.insert"] = { data: rule(7, { metric: "wind", min_value: 0, max_value: 10 }), error: null };
+    fill("0", "36", "wind"); submit("alert-form"); await settle();
+    ins = inserts()[1] || {};
+    ok("4 wind in mph is converted to m/s", ins.metric === "wind" && Math.abs(ins.max_value - 36 * 0.44704) < 1e-9, JSON.stringify(ins));
+    fill("0", "1", "precipitation"); submit("alert-form"); await settle();
+    ins = inserts()[2] || {};
+    ok("4 1 in stored as 25.4 mm", ins.metric === "precipitation" && Math.abs(ins.max_value - 25.4) < 1e-9, JSON.stringify(ins));
+    // Wind entered in km/h (C) is 36 -> 10 m/s
+    await open(on);
+    sb.replies["alert_rules.insert"] = { data: rule(8, { metric: "wind", min_value: 0, max_value: 10 }), error: null };
+    fill("0", "36", "wind"); submit("alert-form"); await settle();
+    ins = inserts()[0] || {};
+    ok("4 36 km/h stored as 10 m/s", Math.abs(ins.max_value - 10) < 1e-9, JSON.stringify(ins));
+    await open(Object.assign({ unit: "F", rules: [rule(1, { min_value: 30, max_value: 40 })] }, on));
+    ok("4 list shows F", $("alert-list").textContent.includes("86.0–104.0 °F"), $("alert-list").textContent);
+    setUnit("C"); await settle();
+    ok("4 after switching to C the list shows 30.0–40.0 °C", $("alert-list").textContent.includes("30.0–40.0 °C"), $("alert-list").textContent);
+    ok("4 list line has city, measure and slot", $("alert-list").textContent.startsWith("Lisbon · Temperature outside"), $("alert-list").textContent);
+    eq("4 unit change stores nothing", sbCalls("alert_rules.insert").length + sbCalls("alert_rules.update").length, 0);
+
+    // 5. Limit
+    const twenty = Array.from({ length: 20 }, (_, i) => rule(i + 1));
+    await open(Object.assign({ rules: twenty }, on));
+    ok("5 Add disabled at 20", $("alert-add").disabled);
+    eq("5 limit message", $("alert-limit").hidden ? "hidden" : text("alert-limit"), "You can have up to 20 alerts. Delete one to add another.");
+    await open(on);
+    sb.replies["alert_rules.insert"] = { data: null, error: { message: "alert_limit", code: "P0001", hint: "You can have up to 20 alerts." } };
+    fill("1", "2"); submit("alert-form"); await settle();
+    eq("5 server alert_limit shows the same message", text("alert-msg"), "You can have up to 20 alerts. Delete one to add another.");
+
+    // 6. Failed save keeps values; layout; keyboard
+    await open(on);
+    sb.replies["notification_settings.upsert"] = { data: null, error: SB_ERR.network };
+    $("notify-hour").value = "9"; $("notify-daily").checked = true; $("notify-weekly").checked = true; $("notify-day").value = "5";
+    submit("notify-form"); await settle();
+    ok("6 failed save message", text("notify-msg").startsWith("Couldn't save."), text("notify-msg"));
+    eq("6 values kept", $("notify-hour").value + $("notify-day").value + $("notify-daily").checked + $("notify-weekly").checked, "95truetrue");
+    sb.replies["notification_settings.upsert"] = null;
+    await open(Object.assign({ width: 400, rules: [rule(1), rule(2, { city_id: 2 })] }, on));
+    ok("6 no sideways scroll at 400px", doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+      doc.documentElement.scrollWidth + " > " + doc.documentElement.clientWidth);
+    ok("6 every notification control is labelled", [...$("notify").querySelectorAll("input,select")].every(i => i.labels && i.labels.length));
+    ok("6 controls are in the tab order", [...$("notify").querySelectorAll("input,select,button[type]")].every(c => c.tabIndex >= 0));
+    // Keyboard: Enter in a field submits the form (it has a submit button); Delete is a native button.
+    ok("6 alert form submits with Enter", $("alert-form").querySelector('button[type="submit"]') && $("alert-min").form === $("alert-form"));
+    sb.replies["alert_rules.insert"] = { data: rule(9), error: null };
+    fill("1", "2"); $("alert-form").requestSubmit(); await settle();
+    eq("6 alert added via the form", $("alert-list").querySelectorAll("li").length, 3);
+    const del = () => [...doc.querySelectorAll("button[data-delete]")];
+    ok("6 Delete names include city and measure", del().every(b => /^Delete alert: (Lisbon|Oslo), Temperature$/.test(b.getAttribute("aria-label"))));
+    del()[0].click(); await settle();
+    eq("6 delete filtered by id and user", JSON.stringify(sbCalls("alert_rules.delete").map(c => ops(c.args[0], "eq"))), '[[["id",1],["user_id","u1"]]]');
+    eq("6 one alert removed", del().length, 2);
+    ok("6 focus moves to the next Delete button", doc.activeElement === del()[0]);
+    del()[0].click(); await settle(); del()[0].click(); await settle();
+    ok("6 focus moves to the add form when none are left", doc.activeElement === $("alert-city"));
+
+    // 7. Unsubscribe
+    const FN = "https://mock.supabase.co/functions/v1/unsubscribe";
+    const unsubUi = () => !$("unsubscribe").hidden;
+    sb.replies["auth.getSession"] = { data: { session: null }, error: null };
+    mock.search = "?unsubscribe=abc.def"; mock.fetch[FN] = { unsubscribed: true };
+    await loadPage(1280);
+    const posts = mock.requests.filter(r => r.url === FN);
+    eq("7 one POST with the token", posts.length + posts.map(p => p.method + p.body).join(""), '1POST{"token":"abc.def"}');
+    ok("7 shows Email notifications are off, without sign-in", unsubUi() && text("unsubscribe-msg").startsWith("Email notifications are off.") &&
+      !sbCalls("auth.signInWithPassword").length);
+    ok("7 parameter removed from the address", !/unsubscribe/.test(win.WX_TEST_SEARCH || ""));
+    mock.requests = []; mock.search = null; await loadPage(1280);
+    eq("7 no parameter makes no POST", mock.requests.filter(r => r.url === FN).length, 0);
+    mock.search = "?unsubscribe=bad"; mock.fetch[FN] = { error: "invalid_token" };
+    await loadPage(1280);
+    ok("7 rejected token message", text("unsubscribe-msg").startsWith("This unsubscribe link isn't valid."), text("unsubscribe-msg"));
+    mock.fetch[FN] = null;
+    await loadPage(1280);
+    ok("7 network error message and Try again", text("unsubscribe-msg") === "Couldn't reach the server. Try the link again." && !$("unsubscribe-retry").hidden);
+    mock.fetch[FN] = { unsubscribed: true };
+    $("unsubscribe-retry").click(); await settle();
+    ok("7 Try again succeeds", text("unsubscribe-msg").startsWith("Email notifications are off."), text("unsubscribe-msg"));
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications]];
 
   async function run() {
     const saved = {};
@@ -687,7 +874,7 @@
         h.textContent = name;
         $log.appendChild(h);
         clearStore();
-        Object.assign(mock, { calls: [], fetch: {} });
+        Object.assign(mock, { calls: [], requests: [], fetch: {}, search: null });
         resetSupabase();
         resetChart();
         clock = { now: null };
