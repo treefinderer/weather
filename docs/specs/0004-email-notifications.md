@@ -104,7 +104,7 @@ Validation runs on submit and shows an inline error next to the field. Nothing i
 - Inside means `min ≤ v ≤ max`. Outside means `v < min` or `v > max`.
 - **Settled slot:** a slot is checked only once it is final. That means both sources have a row, or the 0002 catch-up window for that slot has ended in the city's timezone (local hour 3 or later for night, 15 or later for day). This way a late second source can't change a value that was already emailed.
 - **Only new readings:** a slot is checked against an alert only if its newest reading was fetched after the alert was created. A new alert therefore doesn't fire for old data. Slots fetched more than 48 hours ago are never checked.
-- **De-duplication:** all alerts that match one city and slot go out in one email. Its sent-log key is `kind = 'alert'`, `period_key = '<city_id>|<local_date>|<slot>'`, and it stores the matching `alert_ids`. One reading therefore causes at most one email, and each alert appears in it once. With no quiet period, an alert can fire at most twice a day per city.
+- **De-duplication (per Decision 5):** each alert has one sent-log row per city-local day, `kind = 'alert'`, `period_key = '<alert_id>|<city_id>|<local_date>'`. An alert therefore emails at most once a day: if night and day both match, only the first (night) sends. Alerts that match the same city, date and slot still go out together in one email.
 
 ### When digests send
 
@@ -175,7 +175,7 @@ The app then removes the parameter from the address bar.
 4. Send through `POST https://api.resend.com/emails`:
    - `from`: `EMAIL_FROM`, default `Weather <onboarding@resend.dev>`
    - `to`: the account email
-   - `Idempotency-Key: wx-<log id>`, so a crash between sending and marking the row is caught by Resend
+   - `Idempotency-Key: wx-<log ids joined by '-'>` (`wx-<id>` for a single row), so a crash between sending and marking the row is caught by Resend
 5. On success, mark the row `sent` with `resend_id` and `sent_at`.
 6. On failure:
    - a 5xx, a timeout or a 429 marks the row `failed` with `last_error`, and the next run retries it
@@ -274,7 +274,7 @@ Deno unit tests of `notify/logic.ts`, run by hand as in 0002:
 
 8. The send-window function returns due for local hours `send_hour` to `send_hour + 2` and not-due outside them, with the user's timezone, across a DST change, and for the weekly day only on the chosen weekday.
 9. Digest building uses the Average rule, converts to the user's units, shows "–" for missing values, and HTML-escapes a city named `<b>"A&B"</b>` in the HTML part while the text part stays readable.
-10. Alert matching treats the bounds as inclusive for inside, fires nothing for a null value, an unsettled slot, a slot of the other type, or a reading fetched before the alert was created, and produces the key `<city_id>|<local_date>|<slot>`.
+10. Alert matching treats the bounds as inclusive for inside, fires nothing for a null value, an unsettled slot, a slot of the other type, or a reading fetched before the alert was created, and produces the key `<alert_id>|<city_id>|<local_date>`. When night and day both match, only night is kept.
 11. Unsubscribe tokens verify when signed with the right secret, and fail when any character is changed or a different secret is used.
 
 [real Supabase / Resend]:
