@@ -11,6 +11,8 @@
   const TABLE_ROWS = 31;
   const MAX_DAYS = 366;
   const PRESETS = { "7d": 7, "30d": 30, "90d": 90, "12m": 365 };
+  // Own keys only, so hash parts like "constructor" or "toString" aren't taken for presets.
+  const isPreset = p => Object.prototype.hasOwnProperty.call(PRESETS, p);
   const SOURCES = { avg: "Average", "open-meteo": "Open-Meteo", "met-norway": "MET Norway" };
   const SLOTS = [["day", "Day (12pm)"], ["night", "Night (12am)"]];
   const FIELDS = [["temperature_c", "Temperature", "temp"], ["feels_like_c", "Feels like", "temp"], ["humidity_pct", "Humidity", "pct"],
@@ -38,6 +40,7 @@
   let page = 0;
   let pageKey = "";
   let lastCityId = null;     // whose History button gets focus back
+  let customOpen = false;    // the Custom range panel was opened over a preset period, so it stays open until left
   let charts = [];
 
   function el(tag, cls, text) {
@@ -97,7 +100,7 @@
     if (!/^#history\//.test(hash)) return null;
     const parts = hash.slice(9).split("/");
     if (!/^\d+$/.test(parts[0])) return null;
-    const period = PRESETS[parts[1]] || customRange(parts[1]) ? parts[1] : "30d";
+    const period = isPreset(parts[1]) || customRange(parts[1]) ? parts[1] : "30d";
     const source = Object.prototype.hasOwnProperty.call(SOURCES, parts[2]) ? parts[2] : "avg";
     return { cityId: Number(parts[0]), period, source };
   }
@@ -118,6 +121,7 @@
     }
     // A different city (or the list) starts from a fresh city query, so a removed city is noticed.
     if (city && (!r || r.cityId !== city.id)) city = null;
+    if (!r || !route || r.cityId !== route.cityId) customOpen = false;
     route = r;
     const wasOpen = !$("screen-history").hidden;
     sync();
@@ -171,8 +175,20 @@
     return { data: all };
   }
 
+  // Any unexpected error ends in the error state with Try again, never an unhandled rejection.
   async function refresh() {
-    const s = ++seq, r = route, sb = Wx.supabase;
+    const s = ++seq, r = route;
+    try {
+      await load(s, r);
+    } catch (e) {
+      if (s === seq && route === r && r) setView("error");
+    }
+  }
+
+  async function load(s, r) {
+    const sb = Wx.supabase;
+    // A reply for a route that is no longer on show (a newer load, another city or back to the list) is dropped.
+    const stale = () => s !== seq || route !== r;
     if (!r || !sb) return;
     renderControls();
     if (!city || city.id !== r.cityId) {
@@ -180,7 +196,7 @@
       renderHeader();
       setView("loading");
       const res = await request(() => sb.from("cities").select("id, name, admin1, country, timezone").eq("id", r.cityId).maybeSingle());
-      if (s !== seq) return;
+      if (stale()) return;
       if (res.error) return setView("error");
       if (!res.data) return setView("gone");
       const c = res.data;
@@ -188,7 +204,7 @@
       renderHeader();
     }
     const today = todayIn(city.timezone);
-    let rg = PRESETS[r.period] ? { from: addDays(today, -(PRESETS[r.period] - 1)), to: today } : customRange(r.period);
+    let rg = isPreset(r.period) ? { from: addDays(today, -(PRESETS[r.period] - 1)), to: today } : customRange(r.period);
     if (!rg || rg.to > today) {
       // A custom range that ends after the city's today is invalid, so it becomes the default period.
       r.period = "30d";
@@ -201,7 +217,7 @@
     if (!cache[key]) {
       setView("loading");
       const res = await fetchRows(sb, r.cityId, rg.from, rg.to);
-      if (s !== seq) return;
+      if (stale()) return;
       if (res.error) return setView("error");
       cache[key] = res.data;
     }
@@ -219,6 +235,7 @@
     range = null;
     page = 0;
     pageKey = "";
+    customOpen = false;
     setView("idle");
     renderHeader();
   }
@@ -262,12 +279,13 @@
   }
   function renderControls() {
     if (!route) return;
-    const custom = !PRESETS[route.period];
+    const custom = !isPreset(route.period) || customOpen;
     $("history-period").value = custom ? "custom" : route.period;
     $("history-source").value = route.source;
     setHidden($("history-source-hint"), route.source !== "avg");
     setHidden($("history-custom"), !custom);
-    const cr = customRange(route.period);
+    // While the panel is open its typed dates are kept (a source change mustn't reset them).
+    const cr = customOpen ? null : customRange(route.period);
     if (cr) { $("history-from").value = cr.from; $("history-to").value = cr.to; }
     const max = city ? todayIn(city.timezone) : "";
     $("history-from").max = max;
@@ -442,8 +460,9 @@
   $("history-retry").addEventListener("click", refresh);
   $("history-period").addEventListener("change", () => {
     const v = $("history-period").value;
-    if (v !== "custom") return go(v, route.source);
+    if (v !== "custom") { customOpen = false; return go(v, route.source); }
     // Custom starts from the period on show; the hash changes on Apply.
+    customOpen = true;
     $("history-custom").hidden = false;
     $("history-range-msg").textContent = "";
     if (range) { $("history-from").value = range.from; $("history-to").value = range.to; }
@@ -461,7 +480,7 @@
     else if (today && to > today) problem = MSG.future + " (" + Wx.fmt.day(today) + ").";
     else if (span(from, to) > MAX_DAYS) problem = MSG.long;
     msg.textContent = problem;
-    if (!problem) go(from + ".." + to, route.source);
+    if (!problem) { customOpen = false; go(from + ".." + to, route.source); }
   });
   // Paging redraws only the table; the charts always cover the whole period.
   $("history-newer").addEventListener("click", () => { page = Math.max(0, page - 1); renderTable(group(rows)); });

@@ -490,8 +490,25 @@
     ok("7 submitting the form searches", mock.calls.some(u => u.includes("name=Spring")));
   }
 
+  // History regressions (spec 0003 review findings)
+  async function historyRegressions() {
+    clock.now = Date.UTC(2026, 9, 27, 12);
+    sb.replies["auth.getSession"] = { data: { session: { user: { id: "u1", email: "ann@example.com" } } }, error: null };
+    sb.replies["cities.select"] = { data: { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", timezone: "Europe/Paris" }, error: null };
+    sb.replies["readings.select"] = pages([{ source: "open-meteo", slot: "day", local_date: "2026-10-26", temperature_c: 12 }]);
+    await loadPage(1280);
+    win.location.hash = "#history/5/constructor/avg";
+    await wait(150);
+    eq("an inherited key as period becomes 30d", win.location.hash, "#history/5/30d/avg");
+    const q = sbCalls("readings.select");
+    ok("readings are queried for the last 30 days", q.length && ops(q[q.length - 1].args[0], "gte")[0][1] === "2026-09-28",
+      q.length ? JSON.stringify(ops(q[q.length - 1].args[0], "gte")) : "no readings query");
+    ok("the view leaves Loading", $("history-status").textContent === "" && $("history-error").hidden);
+  }
+
   // --- Runner ---
-  const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities]];
+  const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
+    ["History regressions", historyRegressions]];
 
   async function run() {
     const saved = {};
