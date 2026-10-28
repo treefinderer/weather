@@ -192,6 +192,19 @@ $$;
 revoke execute on function public.notify_claim(uuid, text, text[]) from public, anon, authenticated;
 grant execute on function public.notify_claim(uuid, text, text[]) to service_role;
 
+-- Releases rows after a Resend 429: gives back the attempt notify_claim took (a rate limit isn't the email's fault)
+-- and clears the lease, so the next run can claim them again.
+create function public.notify_release_rate_limited(p_ids bigint[], p_error text)
+returns void
+language sql security definer set search_path = '' as $$
+  update public.notification_log
+    set status = 'failed', last_error = p_error, claimed_at = null, attempts = greatest(attempts - 1, 0)
+  where id = any (p_ids) and status in ('pending', 'failed');
+$$;
+
+revoke execute on function public.notify_release_rate_limited(bigint[], text) from public, anon, authenticated;
+grant execute on function public.notify_release_rate_limited(bigint[], text) to service_role;
+
 -- ============================================================================================================
 -- Cron schedule: calls the notify Edge Function at minute 20 of every UTC hour, 15 minutes after collect.
 -- Same pattern as 0002: the URL and the secret (the existing collect_secret) are read from Vault by name when

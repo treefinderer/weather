@@ -229,11 +229,17 @@ Deno.serve(async (req) => {
     }
     const error = ((status === null ? "network" : "HTTP " + status) + ": " + (body.message || "")).slice(0, 500);
     console.error("notify: send failed:", error);
+    counts.failed++;
+    if (outcome === "rate_limited") {
+      // A 429 doesn't use up an attempt: give it back, release the lease and stop this run.
+      const rel = await db.rpc("notify_release_rate_limited", { p_ids: logIds, p_error: error });
+      if (rel.error) console.error("notify: can't release rate-limited rows", rel.error);
+      stop = true;
+      continue;
+    }
     const update: Record<string, unknown> = { status: "failed", last_error: error, claimed_at: null };
     if (outcome === "permanent") update.attempts = 5;
     await db.from("notification_log").update(update).in("id", logIds);
-    counts.failed++;
-    if (outcome === "rate_limited") stop = true;
   }
 
   return json(counts);
