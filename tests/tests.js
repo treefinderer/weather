@@ -195,7 +195,7 @@
   // --- Groups ---
   async function page() {
     await loadPage(1280);
-    ok("page has an h1", doc.querySelector("h1"));
+    ok("page has an h1", doc.querySelector("h1") && doc.querySelector("h1").textContent.trim() === "Weather Insights");
     ok("window.Wx is defined", win.Wx && typeof win.Wx === "object");
   }
 
@@ -220,7 +220,7 @@
     // 1. No session
     sb.replies["auth.getSession"] = { data: { session: null }, error: null };
     await loadPage(1280);
-    ok("1 no session shows Sign in", shown("signin") && !shown("shell") && !shown("settings"));
+    ok("1 no session shows Landing", shown("landing") && !shown("signin") && !shown("shell") && !shown("settings"));
     ok("1 Sign in form has its controls", $("signin-email") && $("signin-password") && text("signin-submit") === "Sign in" &&
       text("to-forgot") === "Forgot password?" && text("to-signup") === "Create an account");
     ok("1 account header hidden", $("account").hidden);
@@ -290,7 +290,7 @@
     await signedIn();
     click("sign-out"); await settle();
     eq("7 signOut called", sbCalls("auth.signOut").length, 1);
-    ok("7 back on Sign in, no email", shown("signin") && text("account-email") === "" && $("account").hidden);
+    ok("7 back on Landing, no email", shown("landing") && text("account-email") === "" && $("account").hidden);
 
     // 8. Forgot password
     sb.replies["auth.getSession"] = { data: { session: null }, error: null };
@@ -340,7 +340,8 @@
       [...doc.querySelectorAll("input")].every(i => i.labels && i.labels.length), "an input has no label");
     sb.replies["auth.getSession"] = { data: { session: null }, error: null };
     await loadPage(400);
-    noScroll("sign in"); labelled("all screens");
+    noScroll("landing"); labelled("all screens");
+    click("header-signin"); noScroll("sign in");
     click("to-signup"); noScroll("sign up");
     await signedIn(); await loadPage(400);
     noScroll("shell");

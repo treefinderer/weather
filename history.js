@@ -19,7 +19,7 @@
     ["wind_speed_ms", "Wind", "wind"], ["precipitation_mm", "Precipitation", "rain"], ["weather_code", "Conditions", null]];
   const COLS = "source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm, weather_code";
   // Auth screens that take the place of the city list; while one shows, the history view is hidden too.
-  const OTHER_SCREENS = ["loading", "unavailable", "signin", "signup", "forgot", "reset", "settings"];
+  const OTHER_SCREENS = ["loading", "unavailable", "landing", "signin", "signup", "forgot", "reset", "settings"];
   const MSG = {
     loading: "Loading history…",
     both: "Choose both a start and an end date.",
@@ -455,6 +455,12 @@
   // --- Controls ---
   $("history-back").addEventListener("click", () => {
     try { history.pushState(null, "", pageUrl()); } catch (e) { location.hash = ""; return; }
+    apply();
+  });
+  // The header logo (auth.js shows Landing) leaves History the way Back to cities does, so Go to your cities opens the list.
+  $("brand-link").addEventListener("click", () => {
+    if (!route || $("screen-landing").hidden) return;
+    try { history.pushState(null, "", pageUrl()); } catch (e) { replaceHash(""); }
     apply();
   });
   $("history-retry").addEventListener("click", refresh);

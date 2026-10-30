@@ -36,11 +36,17 @@
   }
 
   // --- Screens ---
-  const SCREENS = ["loading", "unavailable", "signin", "signup", "forgot", "reset", "shell", "settings"];
+  const SCREENS = ["loading", "unavailable", "landing", "signin", "signup", "forgot", "reset", "shell", "settings"];
   let current = "loading";
   function show(name) {
     SCREENS.forEach(s => { $("screen-" + s).hidden = s !== name; });
-    $("account").hidden = !(name === "shell" || name === "settings");
+    const signedIn = !!Wx.user;
+    $("account").hidden = !(signedIn && (name === "shell" || name === "settings" || name === "landing"));
+    // Header Sign in for signed-out visitors, except where it can't help (spec 0005).
+    $("header-signin").hidden = signedIn || ["loading", "unavailable", "signin", "reset"].includes(name);
+    // Landing's calls to action: Get started / Sign in when signed out, Go to your cities when signed in.
+    document.querySelectorAll(".when-out").forEach(el => { el.hidden = signedIn; });
+    document.querySelectorAll(".when-in").forEach(el => { el.hidden = !signedIn; });
     if (name !== current) {
       current = name;
       const h = $("screen-" + name).querySelector("h2");
@@ -96,7 +102,7 @@
     $("account-email").textContent = user.email || "";
     $("account-email").title = user.email || "";
     setMsg("shell-msg", note || "", "ok");
-    if (changed || note || (current !== "shell" && current !== "settings")) {
+    if (changed || note || (current !== "shell" && current !== "settings" && current !== "landing")) {
       show("shell");
       if (changed) { emit(); loadUnit(); }
     }
@@ -112,7 +118,7 @@
     setUnitRadios("C");
     setMsg("unit-msg", "");
     setMsg("password-msg", "");
-    show("signin");
+    show("landing");
     if (had) emit();
   }
   function showRecovery(session) {
@@ -148,7 +154,7 @@
     if (hash.get("error_code") === "otp_expired" || (hash.get("error") && !session)) return showExpired("signin");
     if (hash.get("type") === "recovery") return session ? showRecovery(session) : showExpired("signin");
     if (session && session.user) enterApp(session.user);
-    else show("signin");
+    else show("landing");
   }
 
   // --- Unit preference ---
@@ -332,6 +338,31 @@
     show("settings");
   });
   $("settings-back").addEventListener("click", () => show("shell"));
+
+  // --- Landing (spec 0005) ---
+  // The header logo shows Landing in place, for anyone. history.js closes an open History view on the same click.
+  $("brand-link").addEventListener("click", e => {
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;   // let the browser open a new tab
+    e.preventDefault();
+    if (current === "loading" || current === "unavailable") return;
+    if (current === "reset") {
+      // Abandons the reset: drop the recovery session so a reload doesn't sign in with it.
+      leaveApp();
+      if (client) request(() => client.auth.signOut({ scope: "local" }));
+      return;
+    }
+    show("landing");
+  });
+  // Landing and header buttons name the screen they open in data-go.
+  document.querySelectorAll("[data-go]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const to = btn.dataset.go;
+      if (to === "shell") { if (Wx.user) show("shell"); return; }
+      if (Wx.user) return;
+      if (to === "signup") { setMsg("signup-msg", ""); show("signup"); }
+      else goSignin();
+    });
+  });
 
   init();
 })();

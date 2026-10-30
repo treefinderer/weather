@@ -3,24 +3,108 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Weather</title>
+<title>Weather Insights</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="app">
-  <header class="topbar">
-    <h1>Weather</h1>
+<header class="topbar">
+  <div class="topbar-inner">
+    <h1 class="brand"><a class="brand-link" id="brand-link" href="./"><img src="assets/logo.svg" alt="" width="28" height="28">Weather Insights</a></h1>
+    <button type="button" class="header-signin" id="header-signin" data-go="signin" hidden>Sign in</button>
     <div class="account" id="account" hidden>
       <span class="account-email" id="account-email"></span>
       <button type="button" class="btn-secondary" id="settings-open">Settings</button>
       <button type="button" class="btn-secondary" id="sign-out">Sign out</button>
     </div>
-  </header>
+  </div>
+</header>
+<main class="app">
 
   <section class="card notice" id="unsubscribe" aria-labelledby="unsubscribe-title" hidden>
     <h2 id="unsubscribe-title">Email notifications</h2>
     <p class="msg" id="unsubscribe-msg" role="status"></p>
     <button type="button" class="btn-secondary" id="unsubscribe-retry" hidden>Try again</button>
+  </section>
+
+  <section class="screen landing" id="screen-landing" aria-labelledby="landing-title" hidden>
+    <div class="band hero">
+      <div class="hero-text">
+        <h2 class="hero-title" id="landing-title" tabindex="-1">Weather, remembered.</h2>
+        <p class="hero-sub">Follow up to 10 cities and build a twice-daily weather history from two independent sources.</p>
+        <div class="hero-actions when-out">
+          <button type="button" class="btn" data-go="signup">Get started</button>
+          <button type="button" class="chevron-link" data-go="signin">Sign in</button>
+        </div>
+        <div class="hero-actions when-in" hidden>
+          <button type="button" class="btn" data-go="shell">Go to your cities</button>
+        </div>
+      </div>
+      <img class="hero-img" src="assets/hero.svg" alt="" width="1200" height="640">
+    </div>
+    <section class="band band-alt feature" aria-labelledby="feature-cities-title">
+      <div class="feature-inner">
+        <img src="assets/feature-cities.svg" alt="" width="640" height="480">
+        <div class="feature-text">
+          <p class="eyebrow">Your cities</p>
+          <h3 id="feature-cities-title">Up to 10 cities. One calm list.</h3>
+          <p>Search for a city and add it. Weather Insights keeps a separate history for each one, in its own local time.</p>
+        </div>
+      </div>
+    </section>
+    <section class="band feature feature-flip" aria-labelledby="feature-readings-title">
+      <div class="feature-inner">
+        <img src="assets/feature-readings.svg" alt="" width="640" height="480">
+        <div class="feature-text">
+          <p class="eyebrow">Twice a day</p>
+          <h3 id="feature-readings-title">Recorded at 12am and 12pm.</h3>
+          <p>At midnight and midday local time, each city gets a reading from two independent services, Open-Meteo and MET Norway, stored side by side. It's a record of what happened, not a forecast.</p>
+        </div>
+      </div>
+    </section>
+    <section class="band band-alt feature" aria-labelledby="feature-history-title">
+      <div class="feature-inner">
+        <img src="assets/feature-history.svg" alt="" width="640" height="480">
+        <div class="feature-text">
+          <p class="eyebrow">History</p>
+          <h3 id="feature-history-title">See how it really was.</h3>
+          <p>Browse daily readings in a table, or follow day and night temperatures on charts, from the last week to the last year. Show everything in °C or °F.</p>
+        </div>
+      </div>
+    </section>
+    <section class="band feature feature-flip" aria-labelledby="feature-email-title">
+      <div class="feature-inner">
+        <img src="assets/feature-email.svg" alt="" width="640" height="480">
+        <div class="feature-text">
+          <p class="eyebrow">Email</p>
+          <h3 id="feature-email-title">Digests and alerts, on your schedule.</h3>
+          <p>Get a daily or weekly digest of your cities, and an alert when a reading goes outside, or inside, a range you set.</p>
+          <p class="badge">Email notifications are in testing</p>
+        </div>
+      </div>
+    </section>
+    <section class="band band-alt steps" aria-labelledby="steps-title">
+      <h3 class="section-title" id="steps-title">How it works</h3>
+      <ol class="step-list">
+        <li><span class="step-num" aria-hidden="true">1</span><h4>Create an account</h4><p>Sign up with your email and a password.</p></li>
+        <li><span class="step-num" aria-hidden="true">2</span><h4>Add your cities</h4><p>Search and follow up to 10.</p></li>
+        <li><span class="step-num" aria-hidden="true">3</span><h4>Watch your history grow</h4><p>Readings arrive twice a day. Check the charts, or let a digest bring them to you.</p></li>
+      </ol>
+    </section>
+    <section class="band closing" aria-labelledby="closing-title">
+      <img src="assets/logo.svg" alt="" width="64" height="64">
+      <h3 class="section-title" id="closing-title">Start your weather history today.</h3>
+      <p class="closing-sub">Your first readings arrive at the next 12am or 12pm in each city.</p>
+      <div class="hero-actions when-out">
+        <button type="button" class="btn" data-go="signup">Get started</button>
+      </div>
+      <div class="hero-actions when-in" hidden>
+        <button type="button" class="btn" data-go="shell">Go to your cities</button>
+      </div>
+    </section>
   </section>
 
   <section class="screen" id="screen-loading" aria-labelledby="loading-title">
@@ -341,6 +425,12 @@
     </form>
   </section>
 </main>
+<footer class="footer">
+  <div class="footer-inner">
+    <p>Weather data from <a href="https://open-meteo.com/">Open-Meteo</a> and <a href="https://api.met.no/">MET Norway</a>. Weather Insights records past readings; it doesn't forecast.</p>
+    <p><a href="https://github.com/treefinderer/weather">Source code on GitHub</a></p>
+  </div>
+</footer>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="common.js"></script>
