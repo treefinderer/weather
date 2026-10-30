@@ -16,6 +16,7 @@ The `pages` GitHub Actions workflow deploys the frontend on every push to `main`
 
 - `index.html` (markup), `style.css` (all styles), `common.js` (shared helpers on `window.Wx`).
 - A new feature gets its own IIFE `.js` file, loaded after `common.js`, and shares only through `window.Wx`.
+- `assets/` holds the logo, favicon and illustrations (original SVG), `docs/design/` the design briefs.
 - `supabase/migrations/` holds the SQL schema and RLS policies, `supabase/functions/` the Edge Functions.
 - Read only the files a change touches.
 
@@ -36,6 +37,7 @@ The main session orchestrates: it briefs agents with only the files involved and
 | # | Stage | Who | Gate |
 |---|-------|-----|------|
 | 1 | Spec, `docs/specs/NNNN-slug.md`, short, at most about 12 checks | `product-analyst` | **Owner approves** |
+| 1b | Design brief `docs/design/NNNN-slug.md` and SVG assets in `assets/`, only when the spec changes how the site looks | `designer` | Owner approves together with the spec |
 | 2 | Build on `feature/NNNN-slug` | `developer` | `tests/run.sh` PASS |
 | 3 | Review | `code-reviewer` (sonnet) | APPROVE |
 | 4 | Tests added to `tests/tests.js`, short `docs/qa/NNNN-slug.md` | `qa-tester` (sonnet) | `tests/run.sh` PASS |

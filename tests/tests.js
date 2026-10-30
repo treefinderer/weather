@@ -195,7 +195,7 @@
   // --- Groups ---
   async function page() {
     await loadPage(1280);
-    ok("page has an h1", doc.querySelector("h1"));
+    ok("page has an h1", doc.querySelector("h1") && doc.querySelector("h1").textContent.trim() === "Weather Insights");
     ok("window.Wx is defined", win.Wx && typeof win.Wx === "object");
   }
 
@@ -220,7 +220,7 @@
     // 1. No session
     sb.replies["auth.getSession"] = { data: { session: null }, error: null };
     await loadPage(1280);
-    ok("1 no session shows Sign in", shown("signin") && !shown("shell") && !shown("settings"));
+    ok("1 no session shows Landing", shown("landing") && !shown("signin") && !shown("shell") && !shown("settings"));
     ok("1 Sign in form has its controls", $("signin-email") && $("signin-password") && text("signin-submit") === "Sign in" &&
       text("to-forgot") === "Forgot password?" && text("to-signup") === "Create an account");
     ok("1 account header hidden", $("account").hidden);
@@ -290,7 +290,7 @@
     await signedIn();
     click("sign-out"); await settle();
     eq("7 signOut called", sbCalls("auth.signOut").length, 1);
-    ok("7 back on Sign in, no email", shown("signin") && text("account-email") === "" && $("account").hidden);
+    ok("7 back on Landing, no email", shown("landing") && text("account-email") === "" && $("account").hidden);
 
     // 8. Forgot password
     sb.replies["auth.getSession"] = { data: { session: null }, error: null };
@@ -340,7 +340,8 @@
       [...doc.querySelectorAll("input")].every(i => i.labels && i.labels.length), "an input has no label");
     sb.replies["auth.getSession"] = { data: { session: null }, error: null };
     await loadPage(400);
-    noScroll("sign in"); labelled("all screens");
+    noScroll("landing"); labelled("all screens");
+    click("header-signin"); noScroll("sign in");
     click("to-signup"); noScroll("sign up");
     await signedIn(); await loadPage(400);
     noScroll("shell");
@@ -852,9 +853,180 @@
     ok("7 Try again succeeds", text("unsubscribe-msg").startsWith("Email notifications are off."), text("unsubscribe-msg"));
   }
 
+  // Landing and the Weather Insights look (spec 0005). Not automatable here: real prefers-reduced-motion, real dark mode,
+  // blocked or slow web fonts, visible focus rings, contrast (see docs/qa/0005-weather-insights-look.md).
+  async function landing() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const shown = id => !$("screen-" + id).hidden;
+    const visible = el => !!el && el.getClientRects().length > 0;
+    const visText = () => doc.body.innerText;
+    const btnsIn = root => [...root.querySelectorAll("button")].filter(visible).map(b => b.textContent.trim());
+    const signedOut = async w => { sb.replies["auth.getSession"] = { data: { session: null }, error: null }; await loadPage(w || 1280); };
+    const signedIn = async w => {
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["user_cities.select"] = { data: [{ city_id: 5, added_at: "2026-10-01T00:00:00Z",
+        cities: { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", lat: 48.8, lon: 2.3, timezone: "Europe/Paris" } }], error: null };
+      sb.replies["cities.select"] = { data: { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", timezone: "Europe/Paris" }, error: null };
+      await loadPage(w || 1280);
+    };
+    const hero = () => $("screen-landing").querySelector(".hero");
+    const settle = () => wait(60);
+    const html = await (await fetch("../index.html", { cache: "no-store" })).text();
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+
+    // 1. Title, favicon, header
+    await signedOut();
+    eq("1 title", doc.title, "Weather Insights");
+    const fav = doc.querySelector('link[rel="icon"]');
+    ok("1 favicon linked from assets/", fav && /^assets\/.+\.svg$/.test(fav.getAttribute("href")), fav && fav.getAttribute("href"));
+    eq("1 h1 text", doc.querySelector("h1").textContent.trim(), "Weather Insights");
+    ok("1 header has the logo mark", !!doc.querySelector("h1 img"));
+
+    // 2. Signed out start
+    ok("2 opens on Landing", shown("landing") && !shown("signin") && !shown("shell"));
+    eq("2 headline", $("landing-title").textContent.trim(), "Weather, remembered.");
+    ok("2 subhead", visible(hero().querySelector(".hero-sub")) && hero().querySelector(".hero-sub").textContent.trim().length > 10);
+    eq("2 hero buttons", btnsIn(hero()).join("|"), "Get started|Sign in");
+    ok("2 header Sign in shown, account hidden", visible($("header-signin")) && $("account").hidden);
+    ok("2 closing Get started", btnsIn(doc.querySelector(".closing")).join("|") === "Get started");
+    ok("2 landing makes no API calls", mock.calls.length === 0, mock.calls.join(","));
+
+    // 3. Signed-out navigation and focus
+    hero().querySelector('[data-go="signup"]').click(); await settle();
+    ok("3 Get started opens sign up, heading focused", shown("signup") && doc.activeElement === $("signup-title"));
+    await signedOut();
+    doc.querySelector(".closing [data-go=signup]").click(); await settle();
+    ok("3 closing Get started opens sign up", shown("signup"));
+    await signedOut();
+    hero().querySelector('[data-go="signin"]').click(); await settle();
+    ok("3 hero Sign in opens sign in, heading focused", shown("signin") && doc.activeElement === $("signin-title"));
+    await signedOut();
+    $("header-signin").click(); await settle();
+    ok("3 header Sign in opens sign in, heading focused", shown("signin") && doc.activeElement === $("signin-title"));
+    $("brand-link").click(); await settle();
+    ok("3 logo from sign in shows Landing", shown("landing") && !shown("signin"));
+
+    // 4. Sign out returns to Landing
+    await signedIn(); $("sign-out").click(); await settle();
+    ok("4 sign out shows Landing with Get started", shown("landing") && btnsIn(hero()).join("|") === "Get started|Sign in" && $("account").hidden);
+
+    // 5. Feature text, note, steps
+    await signedOut();
+    const lt = $("screen-landing").innerText;
+    for (const t of ["10 cities", "12am", "12pm", "Open-Meteo", "MET Norway", "table", "charts", "digest", "alert", "°C", "°F", "Email notifications are in testing"]) {
+      ok("4 landing mentions " + t, lt.includes(t));
+    }
+    ok("4 testing note is visible text", visible([...doc.querySelectorAll("#screen-landing *")].find(e => e.children.length === 0 && e.textContent.trim() === "Email notifications are in testing")));
+    eq("4 exactly 3 steps", doc.querySelectorAll("#screen-landing .step-list > li").length, 3);
+    ok("4 each feature band has an illustration and a heading", doc.querySelectorAll("#screen-landing .feature").length >= 4 &&
+      [...doc.querySelectorAll("#screen-landing .feature")].every(f => f.querySelector("img") && f.querySelector("h3")));
+
+    // 6. Footer
+    const links = () => [...doc.querySelectorAll("footer a")].map(a => a.getAttribute("href"));
+    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://github.com/treefinderer/weather"]) {
+      ok("5 footer links " + href + " on Landing", links().includes(href) && visible(doc.querySelector('footer a[href="' + href + '"]')));
+    }
+    await signedIn();
+    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 3);
+    $("settings-open").click();
+    ok("5 footer visible on Settings", visible(doc.querySelector("footer")));
+
+    // 7. Pictures
+    const imgs = [...doc.querySelectorAll("img")];
+    ok("6 all img src under assets/", imgs.length > 0 && imgs.every(i => /^assets\/[^/]+\.svg$/.test(i.getAttribute("src"))), imgs.map(i => i.getAttribute("src")).join(","));
+    ok("6 every img has width and height", imgs.every(i => i.getAttribute("width") && i.getAttribute("height")));
+    ok("6 no external image or url() in css/html", !/<img[^>]+src="https?:/.test(html) && !/url\(\s*["']?https?:/.test(css));
+    ok("6 no visible Apple", !/apple/i.test(doc.body.innerText), "found in visible text");
+    ok("7 illustrations have alt=\"\"", imgs.every(i => i.getAttribute("alt") === ""));
+    ok("7 no img is focusable", imgs.every(i => !i.hasAttribute("tabindex") && (!i.closest("a, button") || i.closest("a, button") === $("brand-link"))));
+    eq("7 logo link accessible name", $("brand-link").textContent.trim(), "Weather Insights");
+    ok("7 brand link is a link with an href", $("brand-link").tagName === "A" && $("brand-link").getAttribute("href"));
+    await signedOut();
+    const focusables = [...doc.querySelectorAll("a[href], button, input, select, textarea, [tabindex='0']")].filter(e => visible(e) && !e.disabled);
+    ok("8 Tab order: logo first, hero buttons, closing, footer last",
+      focusables[0] === $("brand-link") && focusables.indexOf(hero().querySelector("button")) < focusables.indexOf(doc.querySelector(".closing button")) &&
+      focusables.indexOf(doc.querySelector(".closing button")) < focusables.indexOf(doc.querySelector("footer a")) &&
+      focusables[focusables.length - 1].closest("footer"), focusables.map(e => e.textContent.trim().slice(0, 12)).join("|"));
+
+    // 8. Signed-in logo from each screen
+    const logoCheck = async (name, openIt) => {
+      await signedIn(); await openIt();
+      $("brand-link").click(); await wait(150);
+      ok("13 " + name + ": logo shows Landing without reload", shown("landing") && !shown("shell") && !shown("settings") && !shown("history"));
+      eq("13 " + name + ": hero shows only Go to your cities", btnsIn(hero()).join("|"), "Go to your cities");
+      ok("13 " + name + ": no Get started or Sign in anywhere", !visible($("header-signin")) && !btnsIn(doc.querySelector(".closing")).includes("Get started"));
+      ok("13 " + name + ": account controls shown", !$("account").hidden && $("account-email").textContent === U.email &&
+        visible($("settings-open")) && visible($("sign-out")));
+      eq("13 " + name + ": closing shows Go to your cities", btnsIn(doc.querySelector(".closing")).join("|"), "Go to your cities");
+      hero().querySelector(".when-in button").click(); await wait(150);
+      ok("13 " + name + ": Go to your cities opens the list, heading focused", shown("shell") && !shown("landing") && !shown("history") && doc.activeElement === $("cities-title"));
+    };
+    await logoCheck("Your cities", async () => {});
+    await logoCheck("Settings", async () => { $("settings-open").click(); });
+    await logoCheck("History", async () => {
+      clock.now = Date.UTC(2026, 9, 27, 12);
+      win.location.hash = "#history/5/30d/avg"; await wait(150);
+      ok("13 History is open before the click", shown("history") || !$("screen-history").hidden);
+    });
+    await signedIn();
+    doc.querySelector('.closing [data-go="shell"]').click(); await settle();
+    ok("2 closing Go to your cities from signed-in Landing", shown("shell"));
+    await signedIn();
+    $("brand-link").click(); await settle();
+    doc.querySelector('.closing [data-go="shell"]').click(); await settle();
+    ok("13 closing Go to your cities opens the list", shown("shell") && doc.activeElement === $("cities-title"));
+
+    // 9. Logo edge cases
+    sb.replies["auth.getSession"] = new Promise(() => {});
+    await loadPage(1280);
+    $("brand-link").click(); await settle();
+    ok("logo does nothing while Loading", shown("loading") && !shown("landing"));
+    sb.replies = {}; sb.config = { supabaseUrl: "", supabaseAnonKey: "" };
+    await loadPage(1280);
+    $("brand-link").click(); await settle();
+    ok("logo does nothing on Accounts unavailable", shown("unavailable") && !shown("landing"));
+    resetSupabase();
+    await signedOut();
+    await loadPage(1280);
+    fireAuth("PASSWORD_RECOVERY", { user: U }); await settle();
+    ok("logo on Set a new password shows signed-out Landing", (() => { if (!shown("reset")) return false; $("brand-link").click(); return true; })());
+    await settle();
+    ok("logo on reset: Landing signed out, Get started and Sign in", shown("landing") && !shown("reset") && btnsIn(hero()).join("|") === "Get started|Sign in");
+
+    // 10. 400px
+    await signedOut(400);
+    ok("9 no sideways scroll, signed-out Landing at 400px", doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+      doc.documentElement.scrollWidth + " > " + doc.documentElement.clientWidth);
+    ok("9 hero headline not clipped at 400px", $("landing-title").scrollWidth <= $("landing-title").clientWidth + 1 && $("landing-title").getBoundingClientRect().right <= 400);
+    await signedIn(400); $("brand-link").click(); await settle();
+    ok("9 no sideways scroll, signed-in Landing at 400px", doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+      doc.documentElement.scrollWidth + " > " + doc.documentElement.clientWidth);
+
+    // 11. Color tokens and font
+    const block = sel => { const i = css.indexOf(sel); const o = css.indexOf("{", i), c = css.indexOf("}", o); return css.slice(o + 1, c); };
+    const defs = b => new Set([...b.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+    const root = defs(block(":root {")), dark1 = defs(block(':root:not([data-theme="light"])')), dark2 = defs(block(':root[data-theme="dark"]'));
+    const used = new Set([...css.matchAll(/var\((--[\w-]+)/g)].map(m => m[1]));
+    const undef = [...used].filter(v => !root.has(v));
+    ok("12 every var(--x) used is defined in :root", undef.length === 0, undef.join(","));
+    const colorTokens = [...root].filter(v => v !== "--font" && /#|rgba?\(/.test(block(":root {").match(new RegExp(v + "\\s*:([^;]+);"))[1]));
+    ok("12 every :root color token is in the prefers-color-scheme dark block", colorTokens.every(v => dark1.has(v)), colorTokens.filter(v => !dark1.has(v)).join(","));
+    ok("12 every :root color token is in the data-theme=dark block", colorTokens.every(v => dark2.has(v)), colorTokens.filter(v => !dark2.has(v)).join(","));
+    ok("12 both dark blocks define the same tokens", [...dark1].every(v => dark2.has(v)) && [...dark2].every(v => dark1.has(v)));
+    eq("12 exactly one fonts.googleapis.com stylesheet link", (html.match(/<link[^>]+rel="stylesheet"[^>]+fonts\.googleapis\.com[^>]*>/g) || []).length, 1);
+    const fl = html.match(/<link[^>]+fonts\.googleapis\.com\/css2[^>]*>/);
+    ok("12 one family, display=swap", fl && (fl[0].match(/family=/g) || []).length === 1 && /display=swap/.test(fl[0]), fl && fl[0]);
+    ok("12 preconnect links present", /rel="preconnect"[^>]+fonts\.googleapis\.com/.test(html) && /rel="preconnect"[^>]+fonts\.gstatic\.com/.test(html));
+    const font = block(":root {").match(/--font\s*:([^;]+);/)[1];
+    ok("12 --font ends in a generic family", /,\s*(sans-serif|system-ui)\s*$/.test(font.trim()) && /system-ui|-apple-system|Segoe UI/.test(font), font);
+    ok("12 reduced-motion rule removes animations and transitions", /prefers-reduced-motion:\s*reduce[\s\S]*?(animation|transition)[^;]*(none|0(\.\d+)?s|0\.01ms)/.test(css));
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:"));
+    eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing]];
 
   async function run() {
     const saved = {};
