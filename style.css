@@ -87,6 +87,7 @@ body { display: flex; flex-direction: column; min-height: 100vh; margin: 0; back
 h1 { margin: 0; }
 .lede { margin: 0; color: var(--muted); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none; }
 [hidden] { display: none !important; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 a, button, input, select { transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease; }
