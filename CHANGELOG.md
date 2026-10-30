@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-30
+
+- Renamed to Weather Insights, with a new logo and favicon, an apple.com-style landing page with original illustrations explaining what the site does, a footer crediting the data sources, and a refreshed look on every screen. ([spec 0005](docs/specs/0005-weather-insights-look.md))
+
 ## 2026-10-28
 
 - Email notifications: daily and weekly weather digests and range alerts (at most one per alert per day), set up in Settings, with one-click unsubscribe. Limited to allowlisted addresses until a sending domain is added. ([spec 0004](docs/specs/0004-email-notifications.md))
