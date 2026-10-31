@@ -13,8 +13,11 @@ Before you start, all of these must be true: the review said APPROVE, QA reporte
 
 On `feature/NNNN-slug`:
 1. Run `tests/run.sh` one last time.
-2. Add a one-line entry at the top of `CHANGELOG.md`, under today's date, that links the spec. Commit it, staging by explicit path.
-3. Push the branch: `GIT_TERMINAL_PROMPT=0 git push -u origin feature/NNNN-slug`.
+2. Bump the cache-busting version so browsers fetch the new files right away (GitHub Pages lets them keep old copies for 10 minutes). Every local script and stylesheet in `index.html` ends in `?v=YYYYMMDDNN`; set them all to today's date plus the next two-digit sequence (`01` for the first release of the day):
+   `python3 -c "import re,datetime,pathlib;p=pathlib.Path('index.html');s=p.read_text();d=datetime.date.today().strftime('%Y%m%d');n=max([int(v[8:]) for v in re.findall(r'\\?v=(\\d{10})',s) if v.startswith(d)]+[0])+1;p.write_text(re.sub(r'\\?v=\\d{10}','?v=%s%02d'%(d,n),s));print(d+'%02d'%n)"`
+   A test fails if the values differ. Commit `index.html` with the changelog in the next step.
+3. Add a one-line entry at the top of `CHANGELOG.md`, under today's date, that links the spec. Commit it, staging by explicit path.
+4. Push the branch: `GIT_TERMINAL_PROMPT=0 git push -u origin feature/NNNN-slug`.
 
 ## 2. Merge
 
