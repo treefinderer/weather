@@ -199,7 +199,7 @@
     <form class="city-search" id="city-search" role="search" novalidate>
       <label for="city-query">Search for a city</label>
       <div class="city-search-row">
-        <input id="city-query" type="search" autocomplete="off" maxlength="100">
+        <span class="search-field"><input id="city-query" type="search" autocomplete="off" maxlength="100"></span>
         <button type="submit" class="btn" id="city-search-submit">Search</button>
       </div>
     </form>
@@ -207,6 +207,7 @@
     <p class="msg" id="search-msg" aria-live="polite"></p>
     <ul class="city-results" id="city-results" aria-label="Search results" hidden></ul>
     <p class="msg" id="cities-msg" aria-live="polite"></p>
+    <img class="cities-empty-art" id="cities-empty-art" src="assets/empty-cities.svg" alt="" width="240" height="160" hidden>
     <p class="lede" id="cities-status" aria-live="polite">Loading your cities…</p>
     <button type="button" class="btn-secondary" id="cities-retry" hidden>Try again</button>
     <ul class="city-list" id="city-list" aria-labelledby="cities-title"></ul>
@@ -286,16 +287,20 @@
     </div>
   </section>
 
-  <section class="screen card" id="screen-settings" aria-labelledby="settings-title" hidden>
+  <section class="screen" id="screen-settings" aria-labelledby="settings-title" hidden>
     <div class="screen-head">
       <h2 id="settings-title" tabindex="-1">Settings</h2>
       <button type="button" class="btn-secondary" id="settings-back">Back</button>
     </div>
     <fieldset class="units">
       <legend>Temperature unit</legend>
-      <label><input type="radio" name="unit" value="C" checked> °C</label>
-      <label><input type="radio" name="unit" value="F"> °F</label>
-      <p class="msg" id="unit-msg" aria-live="polite"></p>
+      <div class="units-row">
+        <div class="segmented">
+          <label><input type="radio" name="unit" value="C" checked> °C</label>
+          <label><input type="radio" name="unit" value="F"> °F</label>
+        </div>
+        <p class="msg" id="unit-msg" aria-live="polite"></p>
+      </div>
     </fieldset>
     <section class="notify" id="notify" aria-labelledby="notify-title">
       <h3 id="notify-title">Email notifications</h3>
@@ -306,7 +311,7 @@
         <legend class="visually-hidden">Email notification settings</legend>
         <form id="notify-form" novalidate>
           <label class="check"><input type="checkbox" id="notify-enabled"> Send me email notifications</label>
-          <fieldset class="notify-options" id="notify-options">
+          <fieldset class="notify-options notify-group" id="notify-options">
             <legend class="visually-hidden">Notification options</legend>
             <div class="notify-row">
               <div class="field">
@@ -323,7 +328,7 @@
               <button type="button" class="link" id="notify-tz-device">Use this device's timezone</button>
             </div>
             <p class="hint">The send time applies to both digests.</p>
-            <label class="check"><input type="checkbox" id="notify-daily"> Daily digest</label>
+            <label class="check notify-group"><input type="checkbox" id="notify-daily"> Daily digest</label>
             <div class="notify-weekly">
               <label class="check"><input type="checkbox" id="notify-weekly"> Weekly digest</label>
               <div class="field">
@@ -339,17 +344,19 @@
                 </select>
               </div>
             </div>
-            <fieldset class="notify-cities" id="notify-cities" aria-describedby="notify-cities-msg">
+            <fieldset class="notify-cities notify-group" id="notify-cities" aria-describedby="notify-cities-msg">
               <legend>Cities in digests</legend>
               <p class="hint notify-nocity" id="notify-cities-none" hidden>Add a city first to choose digest cities and alerts.</p>
               <div id="notify-city-list"></div>
               <p class="msg msg-error" id="notify-cities-msg"></p>
             </fieldset>
           </fieldset>
-          <p class="msg" id="notify-msg" aria-live="polite"></p>
-          <button type="submit" class="btn" id="notify-save">Save notifications</button>
+          <div class="notify-group notify-save">
+            <p class="msg" id="notify-msg" aria-live="polite"></p>
+            <button type="submit" class="btn" id="notify-save">Save notifications</button>
+          </div>
         </form>
-        <h4 id="alerts-title">Range alerts</h4>
+        <h4 class="notify-group" id="alerts-title">Range alerts</h4>
         <p class="hint notify-nocity" id="alerts-none" hidden>Add a city first to choose digest cities and alerts.</p>
         <div id="alerts-area">
           <ul class="alert-list" id="alert-list" aria-labelledby="alerts-title"></ul>

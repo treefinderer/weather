@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Partly cloudy night</title>
+  <g transform="translate(0.6 1.6)">
+    <path transform="translate(4.25 3.7) scale(0.55)" d="M24.69 18.48A10 10 0 1 1 14.7 6A8 8 0 0 0 24.69 18.48Z" fill="#FFD25A" stroke="#B97F00" stroke-width="3.64" stroke-linejoin="round"/>
+    <path transform="translate(6.5 7.5) scale(0.75)" d="M9 25H24A5 5 0 0 0 22.94 15.11A7 7 0 0 0 9.07 15A5 5 0 0 0 9 25Z" fill="#D5DCE4" stroke="#5E6B7A" stroke-width="2.67" stroke-linejoin="round"/>
+  </g>
+</svg>
