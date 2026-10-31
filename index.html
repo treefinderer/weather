@@ -232,13 +232,15 @@
           <option value="custom">Custom range</option>
         </select>
       </div>
-      <div class="history-field">
-        <label for="history-source">Source</label>
-        <select id="history-source" aria-describedby="history-source-hint">
-          <option value="avg">Average</option>
-          <option value="open-meteo">Open-Meteo</option>
-          <option value="met-norway">MET Norway</option>
-        </select>
+      <div class="history-source-field">
+        <fieldset class="history-source" id="history-source" aria-describedby="history-source-hint">
+          <legend>Source</legend>
+          <div class="segmented segmented-3">
+            <label><input type="radio" name="history-source" value="avg" checked> Average</label>
+            <label><input type="radio" name="history-source" value="open-meteo"> Open-Meteo</label>
+            <label><input type="radio" name="history-source" value="met-norway"> MET Norway</label>
+          </div>
+        </fieldset>
         <p class="hint" id="history-source-hint">Average of the sources available for each reading.</p>
       </div>
       <fieldset class="history-custom" id="history-custom" hidden>
@@ -263,22 +265,31 @@
     <p class="msg" id="history-gone" hidden>This city is no longer in your list.</p>
     <p class="lede" id="history-empty" hidden>No readings in this period. Readings are recorded at 12am and 12pm local time.</p>
     <div class="history-content" id="history-content" hidden>
+      <ul class="history-stats" id="history-stats" aria-label="Period summary"></ul>
       <div class="history-charts">
         <p class="msg" id="history-charts-msg" hidden>Charts are unavailable right now.</p>
         <section class="chart-card" id="history-temp-card" aria-labelledby="history-temp-title">
-          <h3 id="history-temp-title">Day and night temperature</h3>
+          <div class="chart-head">
+            <h3 id="history-temp-title">Day and night temperature</h3>
+            <p class="chart-legend" aria-hidden="true"><span class="legend-item legend-day"><span class="legend-glyph"></span>Day (12pm)</span><span class="legend-item legend-night"><span class="legend-glyph"></span>Night (12am)</span></p>
+          </div>
           <div class="chart-box"><canvas id="history-temp-chart" role="img"></canvas></div>
         </section>
         <section class="chart-card" id="history-avg-card" aria-labelledby="history-avg-title" hidden>
-          <h3 id="history-avg-title">Averages</h3>
+          <div class="chart-head">
+            <h3 id="history-avg-title">Averages</h3>
+            <p class="chart-legend" aria-hidden="true"><span class="legend-item legend-day"><span class="legend-glyph"></span>Day (12pm)</span><span class="legend-item legend-night"><span class="legend-glyph"></span>Night (12am)</span></p>
+          </div>
           <div class="chart-box"><canvas id="history-avg-chart" role="img"></canvas></div>
         </section>
       </div>
-      <h3 id="history-table-title">Daily readings</h3>
-      <div class="table-wrap" role="region" aria-label="History table" tabindex="0">
-        <table class="history-table" id="history-table"></table>
+      <div class="history-table-card">
+        <h3 id="history-table-title">Daily readings</h3>
+        <div class="table-wrap" role="region" aria-label="History table" tabindex="0">
+          <table class="history-table" id="history-table"></table>
+        </div>
+        <p class="hint">Precipitation is the short-term amount at the reading time, not a daily total.</p>
       </div>
-      <p class="hint">Precipitation is the short-term amount at the reading time, not a daily total.</p>
       <div class="history-pager">
         <button type="button" class="btn-secondary" id="history-newer">Newer</button>
         <p class="history-page-info" id="history-page-info" aria-live="polite"></p>

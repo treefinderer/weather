@@ -587,7 +587,7 @@
     eq("2 eq city_id", JSON.stringify(ops(q, "eq")), '[["city_id",5]]');
     eq("2 gte is the city's local today minus 6", JSON.stringify(ops(q, "gte")), '[["local_date","2026-10-22"]]');
     eq("2 lte is the city's local today", JSON.stringify(ops(q, "lte")), '[["local_date","2026-10-28"]]');
-    eq("2 MET Norway selected", $("history-source").value, "met-norway");
+    ok("2 MET Norway selected", !!doc.querySelector('#history-source input[name="history-source"][value="met-norway"]:checked'));
     win.location.hash = "#history/5/bogus/xyz"; await wait(150);
     eq("2 invalid hash is replaced", win.location.hash, "#history/5/30d/avg");
 
@@ -643,7 +643,7 @@
     ok("7 chart rebuilt with F values", chart.made.length > made && chart.made[made - 0].config.data.datasets[0].data[3] === 69.8 &&
       liveCharts().length === 1 && chart.made.filter(c => !c.destroyed)[0] !== c8 && c8.destroyed);
     const made2 = chart.made.length;
-    $("history-source").value = "open-meteo"; $("history-source").dispatchEvent(new win.Event("change", { bubbles: true })); await wait(150);
+    { const r = doc.querySelector('#history-source input[name="history-source"][value="open-meteo"]'); r.checked = true; r.dispatchEvent(new win.Event("change", { bubbles: true })); } await wait(150);
     ok("7 source change rebuilds with that source's values", chart.made.length > made2 && byCanvas("history-temp-chart").config.data.datasets[0].data[3] === 68);
     eq("7 no Supabase calls from unit or source change", sb.calls.filter(c => /^(readings|cities)/.test(c.method)).length, 0);
 
