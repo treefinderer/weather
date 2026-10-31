@@ -10,6 +10,10 @@
   const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
   const SOURCES = [["open-meteo", "Open-Meteo"], ["met-norway", "MET Norway"]];
   const SLOTS = [["day", "Day (12pm)"], ["night", "Night (12am)"]];
+  // Condition label -> glyph file in assets/ (spec 0006). Clear and partly cloudy have night variants.
+  const GLYPHS = { "Clear": "clear", "Mostly clear": "clear", "Partly cloudy": "partly-cloudy", "Cloudy": "cloudy", "Fog": "fog",
+    "Rain": "rain", "Drizzle": "rain", "Snow": "snow", "Sleet": "snow", "Thunderstorm": "thunderstorm" };
+  const DAY_NIGHT = ["clear", "partly-cloudy"];
   const MSG = {
     loading: "Loading your cities…",
     loadFailed: "Can't load your cities. Check your connection and try again.",
@@ -88,7 +92,8 @@
       ready && !cities.length ? MSG.empty : "";
     $("cities-status").textContent = status;
     $("cities-status").hidden = !status;
-    $("cities-status").className = state === "error" ? "msg msg-error" : "lede";
+    $("cities-status").className = state === "error" ? "msg msg-error" : status === MSG.empty ? "lede cities-empty" : "lede";
+    $("cities-empty-art").hidden = status !== MSG.empty;
   }
 
   // Sets each result's button from the state; keeps the same elements so keyboard focus stays put.
@@ -137,6 +142,44 @@
     box.appendChild(dl);
     return box;
   }
+  // The newest reading (by date; day is newer than night on the same date) as a large average temperature,
+  // a condition and a caption naming the sources (spec 0006).
+  function summary(rows) {
+    const rank = r => (r.local_date || "") + (r.slot === "day" ? "1" : "0");
+    const known = rows.filter(r => SOURCES.some(([source]) => source === r.source));
+    if (!known.length) return null;
+    const top = known.reduce((a, r) => (rank(r) > rank(a) ? r : a));
+    const at = SOURCES.map(([source, label]) => [label, rows.find(r => r.source === source && r.slot === top.slot &&
+      r.local_date === top.local_date)]).filter(([, r]) => r);
+    const withTemp = at.filter(([, r]) => r.temperature_c != null);
+    const avg = withTemp.length ? withTemp.reduce((sum, [, r]) => sum + Number(r.temperature_c), 0) / withTemp.length : null;
+    const box = el("div", "city-summary");
+    const line = el("div", "city-summary-row");
+    line.appendChild(el("p", "city-temp", temp(avg)));
+    // Open-Meteo's code wins when it maps to a condition; otherwise MET Norway's.
+    let cond = "–";
+    at.forEach(([, r]) => { if (cond === "–") cond = Wx.condition(r.weather_code); });
+    if (cond !== "–") {
+      const p = el("p", "city-cond");
+      const glyph = GLYPHS[cond];
+      if (glyph) {
+        const img = el("img", "city-glyph");
+        img.src = "assets/wx-" + glyph + (DAY_NIGHT.includes(glyph) ? (top.slot === "night" ? "-night" : "-day") : "") + ".svg";
+        img.alt = "";
+        img.width = 40;
+        img.height = 40;
+        p.appendChild(img);
+      }
+      p.appendChild(el("span", "", cond));
+      line.appendChild(p);
+    }
+    box.appendChild(line);
+    const names = (withTemp.length ? withTemp : at).map(([label]) => label);
+    const who = names.length > 1 ? (withTemp.length ? "Average of " : "") + names.join(" and ") : names[0];
+    const slotLabel = SLOTS.find(([slot]) => slot === top.slot);
+    box.appendChild(el("p", "city-caption", who + " · " + (slotLabel ? slotLabel[1] : top.slot) + ", " + day(top.local_date)));
+    return box;
+  }
   function card(c) {
     const li = el("li", "city-card");
     li.dataset.id = c.id;
@@ -170,6 +213,8 @@
       li.appendChild(el("p", "lede", MSG.noReadings));
       return li;
     }
+    const sum = summary(rows);
+    if (sum) li.appendChild(sum);
     const slots = el("div", "slots");
     SLOTS.forEach(([slot, slotLabel]) => {
       const group = el("section", "slot");
@@ -205,7 +250,7 @@
   }
 
   // --- Loading ---
-  const READING_COLS = "city_id, source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm";
+  const READING_COLS = "city_id, source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm, weather_code";
 
   function reset(user) {
     gen++;
