@@ -38,6 +38,7 @@
   const removing = new Set();
   const removeFailed = new Set();
   let searching = false;
+  let searchSeq = 0;         // bumped by every search and every clear, so a late reply for an older search is dropped
 
   function setMsg(id, text, kind) {
     const el = $(id);
@@ -263,6 +264,7 @@
     removing.clear();
     removeFailed.clear();
     searching = false;
+    searchSeq++;
     $("city-query").value = "";
     $("city-search-submit").disabled = false;
     $("city-search-submit").textContent = "Search";
@@ -304,7 +306,7 @@
     if (searching) return;
     const query = $("city-query").value.trim();
     if (query.length < 2) return setMsg("search-msg", MSG.short, "error");
-    const g = gen;
+    const g = gen, seq = ++searchSeq;
     const btn = $("city-search-submit");
     searching = true;
     btn.disabled = true;
@@ -315,7 +317,7 @@
       const body = await getJson(GEO_URL + "?name=" + encodeURIComponent(query) + "&count=10&language=en&format=json");
       found = Array.isArray(body && body.results) ? body.results : [];
     } catch (err) { /* found stays null */ }
-    if (g !== gen) return;
+    if (g !== gen || seq !== searchSeq) return;
     searching = false;
     btn.disabled = false;
     btn.textContent = "Search";
@@ -332,6 +334,27 @@
         lat: r.latitude, lon: r.longitude, timezone: r.timezone }));
     renderResults();
     if (!results.length) setMsg("search-msg", 'No places found for "' + query + '".', "error");
+  });
+
+  // Hides the results and the search message, and drops the reply of any search still running.
+  function clearSearch() {
+    searchSeq++;
+    searching = false;
+    $("city-search-submit").disabled = false;
+    $("city-search-submit").textContent = "Search";
+    results = [];
+    renderResults();
+    setMsg("search-msg", "");
+  }
+  // Emptying the box (typing, cut, or the native clear button) clears the results.
+  $("city-query").addEventListener("input", () => {
+    if (!$("city-query").value.trim()) clearSearch();
+  });
+  // Escape closes the results but keeps the typed text; with no results it is left alone.
+  $("city-query").addEventListener("keydown", e => {
+    if (e.key !== "Escape" || !results.length) return;
+    e.preventDefault();
+    clearSearch();
   });
 
   // --- Add and remove ---

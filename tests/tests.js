@@ -396,6 +396,26 @@
     eq("1 short query message", text("search-msg"), "Type at least 2 letters.");
     eq("1 short query makes no request", mock.calls.length, 0);
 
+    // 1b. Clearing the search (owner-reported bug: results stayed after the box was emptied)
+    const shown = () => doc.querySelectorAll("#city-results li").length;
+    mock.fetch[GEO_URL] = GEO.par;
+    await search("Pa");
+    type($("city-query"), "");
+    ok("1b emptying the box hides the results", shown() === 0 && $("city-results").hidden, shown() + " results");
+    await search("P");
+    type($("city-query"), "");
+    eq("1b emptying the box clears the message", text("search-msg"), "");
+    await search("Pa");
+    $("city-query").focus();
+    const escaped = !key($("city-query"), "Escape");
+    ok("1b Escape hides the results", shown() === 0 && $("city-results").hidden, shown() + " results");
+    ok("1b Escape keeps the text and focus", $("city-query").value === "Pa" && doc.activeElement === $("city-query") && escaped);
+    ok("1b Escape with no results is left alone", key($("city-query"), "Escape"));
+    type($("city-query"), "Pa"); submit("city-search"); type($("city-query"), "");
+    await settle();
+    ok("1b a reply after the box was emptied shows nothing", shown() === 0 && text("search-msg") === "", shown() + " results");
+    ok("1b Search button is ready again", !$("city-search-submit").disabled && text("city-search-submit") === "Search");
+
     // 2. Add
     await open([]);
     eq("2 count starts at 0 of 10", text("cities-count"), "0 of 10 cities");
