@@ -1,5 +1,5 @@
 // Weather history: one city's daily day and night readings for a chosen period and source, as a table, a temperature
-// graph and period averages, in the user's unit (spec 0003). Opened by #history/<cityId>/<period>/<source> hashes.
+// graph, period averages and summary tiles, in the user's unit (specs 0003 and 0007). Opened by #history/<cityId>/<period>/<source> hashes.
 // Uses Wx.supabase, Wx.user, Wx.unit, Wx.onAccountChange, Wx.fmt and Wx.condition, plus the global Chart (Chart.js 4).
 (function () {
   "use strict";
@@ -281,7 +281,7 @@
     if (!route) return;
     const custom = !isPreset(route.period) || customOpen;
     $("history-period").value = custom ? "custom" : route.period;
-    $("history-source").value = route.source;
+    sourceRadios().forEach(r => { r.checked = r.value === route.source; });
     setHidden($("history-source-hint"), route.source !== "avg");
     setHidden($("history-custom"), !custom);
     // While the panel is open its typed dates are kept (a source change mustn't reset them).
@@ -291,6 +291,7 @@
     $("history-from").max = max;
     $("history-to").max = max;
   }
+  const sourceRadios = () => Array.from(document.querySelectorAll('#history-source input[name="history-source"]'));
   function setView(v) {
     view = v;
     $("history-status").textContent = v === "loading" ? MSG.loading : "";
@@ -310,8 +311,44 @@
       destroyCharts();
       return;
     }
+    renderStats(g);
     renderTable(g);
     renderCharts(g);
+  }
+
+  // Period summary tiles over the whole loaded period for the chosen source, from memory (spec 0007).
+  // Highs and lows take the newest date on a tie; dates are newest first, so only a strictly better value replaces one.
+  function renderStats(g) {
+    const source = route.source;
+    const stat = slot => {
+      let best = null, bestDate = null, low = null, lowDate = null, sum = 0, n = 0;
+      g.dates.forEach(d => {
+        const v = value(g.by[d], slot, "temperature_c", source);
+        if (v == null || !isFinite(v)) return;
+        if (best == null || v > best) { best = v; bestDate = d; }
+        if (low == null || v < low) { low = v; lowDate = d; }
+        sum += v;
+        n++;
+      });
+      return { best, bestDate, low, lowDate, mean: n ? sum / n : null, n };
+    };
+    const day = stat("day"), night = stat("night");
+    const days = n => n + (n === 1 ? " day" : " days");
+    const tiles = [
+      ["day", "Day high", day.best, day.best == null ? "" : Wx.fmt.day(day.bestDate)],
+      ["night", "Night low", night.low, night.low == null ? "" : Wx.fmt.day(night.lowDate)],
+      ["day", "Day average", day.mean, day.n ? days(day.n) : ""],
+      ["night", "Night average", night.mean, night.n ? days(night.n) : ""]
+    ];
+    const list = $("history-stats");
+    list.textContent = "";
+    tiles.forEach(([slot, label, v, caption]) => {
+      const li = el("li", "stat stat-" + slot);
+      li.appendChild(el("p", "stat-label", label));
+      li.appendChild(el("p", "stat-value" + (v == null ? " stat-none" : ""), Wx.fmt.temp(v)));
+      if (caption) li.appendChild(el("p", "stat-caption", caption));
+      list.appendChild(li);
+    });
   }
 
   function renderTable(g) {
@@ -376,18 +413,27 @@
   // A line chart of day (solid) and night (dashed) temperatures; gaps where a value is missing.
   function lineConfig(labels, day, night, c, points) {
     const dataset = (label, data, color, dash, style) => ({
-      label, data, borderColor: color, backgroundColor: color, borderWidth: 2, borderDash: dash, pointStyle: style,
-      pointRadius: points || labels.length <= 45 ? 3 : 0, pointHitRadius: 8, spanGaps: false, tension: 0
+      label, data, borderColor: color, backgroundColor: color, borderWidth: 2.5, borderDash: dash, pointStyle: style,
+      pointRadius: points || labels.length <= 45 ? 3 : 0, pointHoverRadius: 5, pointBorderWidth: 0, pointHitRadius: 8,
+      spanGaps: false, tension: 0
     });
-    const axis = extra => ({ grid: { color: c.grid }, border: { color: c.grid }, ticks: Object.assign({ color: c.text }, extra) });
+    const font = { family: getComputedStyle(document.body).fontFamily, size: 12 };
+    const ticks = extra => Object.assign({ color: c.text, font }, extra);
     return {
       type: "line",
       data: { labels, datasets: [dataset("Day (12pm)", day, c.day, [], "circle"), dataset("Night (12am)", night, c.night, [6, 4], "rect")] },
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
         interaction: { mode: "index", intersect: false },
-        plugins: { legend: { labels: { color: c.text } } },
-        scales: { x: axis({ autoSkip: true, maxRotation: 0 }), y: axis({ callback: v => v + "°" }) }
+        // The legend is HTML in the card head (it shows the real dash and marker), so Chart.js's own is off.
+        plugins: {
+          legend: { display: false },
+          tooltip: { usePointStyle: true, borderColor: c.grid, borderWidth: 1, padding: 10, boxPadding: 4 }
+        },
+        scales: {
+          x: { grid: { display: false }, border: { color: c.grid }, ticks: ticks({ autoSkip: true, autoSkipPadding: 16, maxRotation: 0 }) },
+          y: { grid: { color: c.grid }, border: { display: false }, ticks: ticks({ padding: 8, maxTicksLimit: 6, callback: v => v + "°" }) }
+        }
       }
     };
   }
@@ -473,7 +519,10 @@
     $("history-range-msg").textContent = "";
     if (range) { $("history-from").value = range.from; $("history-to").value = range.to; }
   });
-  $("history-source").addEventListener("change", () => go(route.period, $("history-source").value));
+  // Source radios: a change (click or arrow keys) moves the hash, which re-renders from memory.
+  $("history-source").addEventListener("change", e => {
+    if (route && e.target.name === "history-source" && e.target.checked) go(route.period, e.target.value);
+  });
   $("history-controls").addEventListener("submit", e => {
     e.preventDefault();
     if (!route || $("history-custom").hidden) return;

@@ -2,6 +2,7 @@
 
 ## 2026-10-30
 
+- History redesigned: large city title, one controls card with a Source switch, period summary tiles (day high, night low, day and night averages), chart cards with legends and the table in its own card. ([spec 0007](docs/specs/0007-history-redesign.md))
 - Fix: scripts and styles now carry a version number that changes on every release, so browsers load updates right away instead of keeping old copies for up to 10 minutes.
 - Fix: city search results now disappear when the search box is cleared or Esc is pressed, and a late search reply no longer brings them back.
 - Your cities and Settings redesigned: large titles, city cards with a big averaged temperature, condition icon and caption, an empty-state picture, grouped Settings cards and a °C/°F segmented control. ([spec 0006](docs/specs/0006-cities-settings-redesign.md))

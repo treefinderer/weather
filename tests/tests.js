@@ -587,7 +587,7 @@
     eq("2 eq city_id", JSON.stringify(ops(q, "eq")), '[["city_id",5]]');
     eq("2 gte is the city's local today minus 6", JSON.stringify(ops(q, "gte")), '[["local_date","2026-10-22"]]');
     eq("2 lte is the city's local today", JSON.stringify(ops(q, "lte")), '[["local_date","2026-10-28"]]');
-    eq("2 MET Norway selected", $("history-source").value, "met-norway");
+    ok("2 MET Norway selected", !!doc.querySelector('#history-source input[name="history-source"][value="met-norway"]:checked'));
     win.location.hash = "#history/5/bogus/xyz"; await wait(150);
     eq("2 invalid hash is replaced", win.location.hash, "#history/5/30d/avg");
 
@@ -643,7 +643,7 @@
     ok("7 chart rebuilt with F values", chart.made.length > made && chart.made[made - 0].config.data.datasets[0].data[3] === 69.8 &&
       liveCharts().length === 1 && chart.made.filter(c => !c.destroyed)[0] !== c8 && c8.destroyed);
     const made2 = chart.made.length;
-    $("history-source").value = "open-meteo"; $("history-source").dispatchEvent(new win.Event("change", { bubbles: true })); await wait(150);
+    { const r = doc.querySelector('#history-source input[name="history-source"][value="open-meteo"]'); r.checked = true; r.dispatchEvent(new win.Event("change", { bubbles: true })); } await wait(150);
     ok("7 source change rebuilds with that source's values", chart.made.length > made2 && byCanvas("history-temp-chart").config.data.datasets[0].data[3] === 68);
     eq("7 no Supabase calls from unit or source change", sb.calls.filter(c => /^(readings|cities)/.test(c.method)).length, 0);
 
@@ -1201,9 +1201,183 @@
     eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
   }
 
+  // History redesign (spec 0007, criteria 2-11; 1 is the suite itself, 12 dark-mode looks are manual)
+  async function historyRedesign() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const PARIS = { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", timezone: "Europe/Paris" };
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+    const html = await (await fetch("../index.html", { cache: "no-store" })).text();
+    const rd = (source, slot, d, t) => ({ source, slot, local_date: d, temperature_c: t, feels_like_c: null, humidity_pct: 60, wind_speed_ms: 5,
+      precipitation_mm: 0.4, weather_code: null });
+    const FIX = [rd("open-meteo", "day", "2026-10-27", 20), rd("met-norway", "day", "2026-10-27", 22),
+      rd("open-meteo", "night", "2026-10-27", 10), rd("met-norway", "night", "2026-10-27", 12),
+      rd("open-meteo", "day", "2026-10-26", 18), rd("open-meteo", "night", "2026-10-24", 8)];
+    const open = async (hash, readings, o) => {
+      o = o || {};
+      clock.now = Date.UTC(2026, 9, 27, 12);
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["profiles.select"] = { data: o.unit ? { unit: o.unit } : null, error: null };
+      sb.replies["user_cities.select"] = { data: [{ city_id: 5, added_at: "2026-10-01T00:00:00Z",
+        cities: { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", lat: 48.8, lon: 2.3, timezone: "Europe/Paris" } }], error: null };
+      sb.replies["cities.select"] = { data: o.city === undefined ? PARIS : o.city, error: null };
+      sb.replies["readings.select"] = pages(readings || []);
+      await loadPage(o.width || 1280);
+      sb.calls = []; chart.made = [];
+      if (hash) { win.location.hash = hash; await wait(150); }
+    };
+    const visible = el => !!el && el.getClientRects().length > 0;
+    const tiles = () => [...doc.querySelectorAll("#history-stats > li")].map(li =>
+      [...li.children].map(p => p.textContent).join("|"));
+    const radio = v => doc.querySelector('#history-source input[name="history-source"][value="' + v + '"]');
+    const change = r => { r.checked = true; r.dispatchEvent(new win.Event("change", { bubbles: true })); };
+    const byCanvas = id => liveCharts().find(c => c.canvas.id === id);
+    const statsShown = () => visible($("history-stats"));
+    const block = sel => { const i = css.indexOf(sel); const o = css.indexOf("{", i), c = css.indexOf("}", o); return css.slice(o + 1, c); };
+
+    // 2. Title band
+    await open("#history/5/7d/avg", FIX);
+    const title = $("history-title"), tz = $("history-tz"), back = $("history-back");
+    const tr = title.getBoundingClientRect(), zr = tz.getBoundingClientRect(), br = back.getBoundingClientRect();
+    ok("2 title shows the place", title.textContent.startsWith("Paris"));
+    ok("2 timezone is under the title", tz.textContent !== "" && zr.top >= tr.bottom - 1, zr.top + " vs " + tr.bottom);
+    ok("2 Back is on the title row", br.top < tr.bottom && br.bottom > tr.top);
+    ok("2 Back comes after the heading", !!(title.compareDocumentPosition(back) & 4));
+    await open("#history/5/7d/avg", FIX, { width: 400 });
+    ok("2 title is large at 400px", parseFloat(win.getComputedStyle($("history-title")).fontSize) >= 30, win.getComputedStyle($("history-title")).fontSize);
+
+    // 3. Controls card
+    await open("#history/5/7d/avg", FIX);
+    const ctl = $("history-controls"), per = $("history-period"), srcset = $("history-source"), hint = $("history-source-hint"), cust = $("history-custom");
+    const before = (a, b) => !!(a.compareDocumentPosition(b) & 4);
+    ok("3 card holds period, source, hint, custom in order", [per, srcset, hint, cust].every(e => ctl.contains(e)) &&
+      before(per, srcset) && before(srcset, hint) && before(hint, cust));
+    ok("3 source is a fieldset with legend Source", srcset.tagName === "FIELDSET" && srcset.querySelector("legend").textContent === "Source");
+    const rs = [...srcset.querySelectorAll("input")];
+    eq("3 three radios named history-source in order", rs.map(r => r.type + ":" + r.name + ":" + r.value).join(","),
+      "radio:history-source:avg,radio:history-source:open-meteo,radio:history-source:met-norway");
+    eq("3 radio labels", rs.map(r => r.labels[0].textContent.trim()).join("|"), "Average|Open-Meteo|MET Norway");
+    ok("3 radios are not display:none or hidden", rs.every(r => !r.hidden && win.getComputedStyle(r).display !== "none" && win.getComputedStyle(r).visibility !== "hidden"));
+    eq("3 period options kept", [...per.options].map(o => o.value).join(","), "7d,30d,90d,12m,custom");
+    const rad = el => win.getComputedStyle(el).borderTopLeftRadius;
+    ok("3 select and date inputs have 12px corners", [per, $("history-from"), $("history-to")].every(e => rad(e) === "12px"),
+      [per, $("history-from"), $("history-to")].map(rad).join(","));
+
+    // 4. Tiles
+    eq("4 tiles", tiles().join(" ; "), "Day high|21°C|Oct 27 ; Night low|8°C|Oct 24 ; Day average|20°C|2 days ; Night average|10°C|2 days");
+    ok("4 list is labelled and sits before the charts", $("history-stats").getAttribute("aria-label") === "Period summary" &&
+      before($("history-stats"), doc.querySelector(".history-charts")) && statsShown());
+
+    // 5. Unit, source, hash
+    const f = doc.querySelector('input[name="unit"][value="F"]');
+    f.checked = true; f.dispatchEvent(new win.Event("change", { bubbles: true })); await wait(150);
+    eq("5 Day high in F", tiles()[0], "Day high|70°F|Oct 27");
+    await open("#history/5/7d/avg", FIX);
+    sb.calls = [];
+    change(radio("open-meteo")); await wait(150);
+    eq("5 radio sets the hash", win.location.hash, "#history/5/7d/open-meteo");
+    eq("5 Day high for Open-Meteo", tiles()[0].split("|")[1], "20°C");
+    ok("5 hint hidden off Average", !visible(hint));
+    eq("5 no Supabase calls", sb.calls.filter(c => /^(readings|cities)/.test(c.method)).length, 0);
+    win.location.hash = "#history/5/7d/met-norway"; await wait(150);
+    ok("5 hash checks MET Norway", radio("met-norway").checked && !radio("avg").checked);
+    win.location.hash = "#history/5/7d/xyz"; await wait(150);
+    eq("5 xyz corrected in hash", win.location.hash, "#history/5/7d/avg");
+    ok("5 xyz checks Average", radio("avg").checked && rs.length === 3 && doc.querySelectorAll("#history-source input:checked").length === 1);
+
+    // 6. Missing values and paging
+    await open("#history/5/7d/avg", FIX.filter(r => r.slot === "day"));
+    eq("6 night tiles are dashes with no caption", tiles().slice(1).filter((t, i) => i !== 1).join(" ; "), "Night low|– ; Night average|–");
+    const many = [];
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(Date.UTC(2026, 9, 27 - i)).toISOString().slice(0, 10);
+      many.push(rd("open-meteo", "day", d, 10 + (i % 7)), rd("open-meteo", "night", d, i % 5));
+    }
+    await open("#history/5/90d/avg", many);
+    const t0 = tiles().join(";");
+    $("history-older").click(); await wait(100);
+    eq("6 paging Older leaves tiles unchanged", tiles().join(";"), t0);
+    $("history-newer").click(); await wait(100);
+    eq("6 paging Newer leaves tiles unchanged", tiles().join(";"), t0);
+
+    // 7. States
+    await open("#history/5/30d/avg", []);
+    ok("7 hidden when empty", !statsShown() && visible($("history-empty")));
+    await open("", []);
+    sb.replies["readings.select"] = new Promise(() => {});
+    win.location.hash = "#history/5/30d/avg"; await wait(100);
+    ok("7 hidden while loading", !statsShown() && $("history-status").textContent !== "");
+    await open("", []);
+    sb.replies["readings.select"] = { data: null, error: SB_ERR.network };
+    win.location.hash = "#history/5/30d/avg"; await wait(150);
+    ok("7 hidden on error", !statsShown() && visible($("history-error")));
+    await open("", [], { city: null });
+    win.location.hash = "#history/5/30d/avg"; await wait(150);
+    ok("7 hidden when city is gone", !statsShown() && visible($("history-gone")) && !visible($("history-controls")));
+    chart.loaded = false;
+    await open("#history/5/7d/avg", FIX);
+    ok("7 no Chart: tiles, table and message show", statsShown() && tiles().length === 4 && doc.querySelectorAll("#history-table tbody tr").length === 4 &&
+      $("history-charts-msg").textContent === "Charts are unavailable right now." && visible($("history-charts-msg")));
+    chart.loaded = true;
+
+    // 8. Chart cards
+    const yr = [rd("open-meteo", "day", "2026-03-10", 10), rd("open-meteo", "night", "2026-03-10", 5), rd("open-meteo", "day", "2026-10-26", 12)];
+    await open("#history/5/12m/avg", yr);
+    const cs = win.getComputedStyle(doc.documentElement);
+    eq("8 two charts", liveCharts().length, 2);
+    for (const id of ["temp", "avg"]) {
+      const card = $("history-" + id + "-card"), c = byCanvas("history-" + id + "-chart");
+      ok("8 " + id + " card has h3 and aria-hidden legend", card.querySelector("h3") && card.querySelector('.chart-legend[aria-hidden="true"]') &&
+        card.querySelector(".chart-legend").textContent.includes("Day (12pm)") && card.querySelector(".chart-legend").textContent.includes("Night (12am)"));
+      ok("8 " + id + " Chart.js legend off and animation false", c.config.options.plugins.legend.display === false && c.config.options.animation === false);
+      ok("8 " + id + " dataset colors are the tokens", c.config.data.datasets[0].borderColor === cs.getPropertyValue("--chart-day").trim() &&
+        c.config.data.datasets[1].borderColor === cs.getPropertyValue("--chart-night").trim());
+    }
+    ok("8 night is dashed, day solid", byCanvas("history-temp-chart").config.data.datasets[1].borderDash.length > 0 &&
+      byCanvas("history-temp-chart").config.data.datasets[0].borderDash.length === 0);
+
+    // 9. Table card
+    const tcard = $("history-table-title").parentElement, wrap = doc.querySelector(".table-wrap"), note = tcard.querySelector(".hint");
+    ok("9 card holds title, wrap and note in order", tcard.contains(wrap) && !!note && before($("history-table-title"), wrap) && before(wrap, note));
+    ok("9 pager follows the card", tcard.nextElementSibling === doc.querySelector(".history-pager"));
+    const dc = doc.querySelector("#history-table tbody .date");
+    const dcs = win.getComputedStyle(dc);
+    ok("9 date column is sticky with an opaque background", dcs.position === "sticky" && !/rgba\(.*, 0\)$|transparent/.test(dcs.backgroundColor), dcs.position + " " + dcs.backgroundColor);
+
+    // 10. 400px
+    await open("", yr, { width: 400, city: { id: 5, name: "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch", admin1: "Isle of Anglesey", country: "United Kingdom", timezone: "Europe/London" } });
+    win.location.hash = "#history/5/12m/avg"; await wait(150);
+    $("history-period").value = "custom"; $("history-period").dispatchEvent(new win.Event("change", { bubbles: true }));
+    $("history-from").value = "2026-09-30"; $("history-to").value = "2026-09-01";
+    $("history-controls").dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true })); await wait(150);
+    const de = doc.documentElement;
+    ok("10 custom open with error", visible($("history-custom")) && $("history-range-msg").textContent !== "");
+    ok("10 no sideways scroll", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+    const labs = [...doc.querySelectorAll("#history-source label")];
+    ok("10 three segments on one row, text not clipped", labs.length === 3 && labs.every(l => l.offsetTop === labs[0].offsetTop && l.scrollWidth <= l.clientWidth + 1));
+    ok("10 stat tiles 2 by 2", new Set([...doc.querySelectorAll("#history-stats > li")].map(l => l.offsetLeft)).size === 2);
+
+    // 11. Focus
+    ok("11 tiles and chart cards are not focusable", [...doc.querySelectorAll("#history-stats, #history-stats li, .chart-card")].every(e => e.tabIndex < 0) &&
+      !doc.querySelector('#history-stats a, #history-stats button, .chart-card a, .chart-card button, .chart-card [tabindex]:not([tabindex="-1"])'));
+    ok("11 radios are focusable inputs", [...doc.querySelectorAll("#history-source input")].every(r => r.tabIndex === 0 || r.tabIndex === -1) && !doc.querySelector("#history-source [tabindex]"));
+
+    // 12 (tokens) and scripts
+    const root = [...block(":root {").matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]).filter(n => n !== "--font");
+    for (const [name, sel] of [["prefers-color-scheme dark", ':root:not([data-theme="light"])'], ["data-theme dark", ':root[data-theme="dark"]']]) {
+      const b = block(sel);
+      const missing = root.filter(n => !new RegExp(n + "\\s*:").test(b));
+      ok("12 every :root color token is in the " + name + " block", missing.length === 0, missing.join(","));
+    }
+    const used = [...new Set([...css.matchAll(/var\((--[\w-]+)\)/g)].map(m => m[1]))];
+    const undef = used.filter(n => !new RegExp(n + "\\s*:").test(block(":root {")));
+    ok("12 every var() used is defined in :root", undef.length === 0, undef.join(","));
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:").replace(/\?v=\d+$/, ""));
+    eq("1 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign]];
 
   async function run() {
     const saved = {};
