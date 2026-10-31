@@ -1024,9 +1024,163 @@
     eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
   }
 
+  // Cities and Settings redesign (spec 0006). Not automatable here: real dark mode, focus rings, contrast, reduced motion,
+  // how glyphs and the illustration look (see docs/qa/0006-cities-settings-redesign.md).
+  async function redesign() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const settle = () => wait(60);
+    const text = id => $(id).textContent;
+    const visible = el => !!el && el.getClientRects().length > 0;
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+    const html = await (await fetch("../index.html", { cache: "no-store" })).text();
+    const row = (id, name) => ({ city_id: id, added_at: "2026-10-2" + (id % 10) + "T00:00:00Z",
+      cities: { id, name: name || "Paris", admin1: "Île-de-France", country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris" } });
+    const rd = (city_id, source, slot, t, code) => ({ city_id, source, slot, local_date: "2026-10-24", temperature_c: t, feels_like_c: 1,
+      humidity_pct: 60, wind_speed_ms: 5, precipitation_mm: 0.4, weather_code: code });
+    const open = async (userCities, latest, width) => {
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["user_cities.select"] = { data: userCities, error: null };
+      sb.replies["latest_readings.select"] = { data: latest || [], error: null };
+      mock.fetch[GEO_URL] = GEO.par;
+      await loadPage(width || 1280);
+    };
+    const card = () => doc.querySelector("#city-list > li");
+    const q = sel => card().querySelector(sel);
+    const setUnit = u => { const r = doc.querySelector('input[name="unit"][value="' + u + '"]'); r.checked = true; r.dispatchEvent(new win.Event("change", { bubbles: true })); };
+    const src = img => img.getAttribute("src");
+
+    // 1, 2. Titles, summary, unit switch
+    await open([row(1)], [rd(1, "open-meteo", "day", 21.4, 3), rd(1, "met-norway", "day", 20.6, "cloudy")]);
+    const title = $("cities-title");
+    eq("1 title text", title.textContent, "Your cities");
+    ok("1 count line directly under the title", title.nextElementSibling === $("cities-count") && text("cities-count") === "1 of 10 cities");
+    ok("1 title is the largest heading text", parseFloat(win.getComputedStyle(title).fontSize) >= 32, win.getComputedStyle(title).fontSize);
+    eq("2 large temp", q(".city-temp").textContent, "21°C");
+    eq("2 condition label", q(".city-cond").textContent.trim(), "Cloudy");
+    eq("2 cloudy glyph", src(q(".city-glyph")), "assets/wx-cloudy.svg");
+    eq("2 caption", q(".city-caption").textContent, "Average of Open-Meteo and MET Norway · Day (12pm), Oct 24");
+    ok("2 temp is the largest text on the card", parseFloat(win.getComputedStyle(q(".city-temp")).fontSize) >= 40);
+    const n = mock.calls.length, sbn = sb.calls.length;
+    setUnit("F"); await settle();
+    eq("2 large temp in F", q(".city-temp").textContent, "70°F");
+    ok("2 unit switch makes no new fetch or reads", mock.calls.length === n && sb.calls.slice(sbn).every(c => !/^(user_cities|latest_readings|rpc)/.test(c.method)));
+
+    // 3. Missing temperature and unmapped codes
+    await open([row(1)], [rd(1, "open-meteo", "night", null, null), rd(1, "met-norway", "night", 18.6, "cloudy")].map(r => r));
+    eq("3 MET-only temp", q(".city-temp").textContent, "19°C");
+    eq("3 MET-only label", q(".city-cond").textContent.trim(), "Cloudy");
+    eq("3 MET-only caption", q(".city-caption").textContent, "MET Norway · Night (12am), Oct 24");
+    setUnit("F"); await settle();
+    eq("3 MET-only temp in F", q(".city-temp").textContent, "65°F");
+    await open([row(1)], [rd(1, "open-meteo", "day", 10, 3), rd(1, "met-norway", "day", 10, "rain")]);
+    eq("3 Open-Meteo wins over MET", q(".city-cond").textContent.trim() + "|" + src(q(".city-glyph")), "Cloudy|assets/wx-cloudy.svg");
+    await open([row(1)], [rd(1, "open-meteo", "day", 10, 999), rd(1, "met-norway", "day", 10, null)]);
+    ok("3 unmapped codes show no label and no glyph", !q(".city-cond") && !q(".city-glyph"));
+    ok("3 temperature and caption still shown", q(".city-temp").textContent === "10°C" && !!q(".city-caption"));
+
+    // 4. Night / day glyph
+    await open([row(1)], [rd(1, "open-meteo", "night", 10, 0), rd(1, "met-norway", "night", 10, null)]);
+    eq("4 night clear glyph", src(q(".city-glyph")), "assets/wx-clear-night.svg");
+    await open([row(1)], [rd(1, "open-meteo", "day", 10, 0), rd(1, "open-meteo", "night", 10, 0)]);
+    eq("4 day clear glyph", src(q(".city-glyph")), "assets/wx-clear-day.svg");
+
+    // 5. Detail tiles and no-readings card
+    await open([row(1), row(2, "Lyon")], [rd(1, "open-meteo", "day", 21, 3), rd(1, "met-norway", "day", 20, 3), rd(1, "open-meteo", "night", 12, 3), rd(1, "met-norway", "night", 11, 3)]);
+    const tiles = [...q(".slots").querySelectorAll(".reading")];
+    eq("5 four reading tiles", tiles.length, 4);
+    eq("5 tile order", tiles.map(t => t.textContent.slice(0, 12)).join("|").replace(/\d{1,2}/g, "").length > 0 && tiles.map(t => t.closest(".slot").querySelector(".slot-title").textContent).join("|"),
+      "Day (12pm)|Day (12pm)|Night (12am)|Night (12am)");
+    eq("5 dl order", [...tiles[0].querySelectorAll("dt")].map(d => d.textContent).join("|"), "Temperature|Feels like|Humidity|Wind|Precipitation");
+    const lone = doc.querySelectorAll("#city-list > li")[1];
+    ok("5 no-readings card has text and no summary", lone.textContent.includes("No readings yet. First reading at 12am/12pm local time.") && !lone.querySelector(".city-summary, .city-temp"));
+
+    // 6. Empty-state art
+    sb.replies["user_cities.select"] = new Promise(() => {});
+    sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+    await loadPage(1280);
+    ok("6 art hidden while loading", !visible($("cities-empty-art")));
+    await open([]);
+    ok("6 art and text shown when empty", visible($("cities-empty-art")) && visible($("cities-status")) && text("cities-status") === "No cities yet. Search for a city to add it.");
+    const art = $("cities-empty-art");
+    ok("6 art decorative, sized, from assets/, not focusable", art.getAttribute("alt") === "" && art.getAttribute("width") && art.getAttribute("height") && /^assets\//.test(src(art)) && art.tabIndex < 0);
+    sb.replies["user_cities.select"] = { data: null, error: SB_ERR.network };
+    sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+    await loadPage(1280);
+    ok("6 art hidden on load error", !visible($("cities-empty-art")) && visible($("cities-retry")));
+    await open([row(1)]);
+    ok("6 art hidden with a city", !visible($("cities-empty-art")));
+
+    // 8, 9. Settings
+    await open([row(1)], [], 1280);
+    $("settings-open").click(); await settle();
+    const st = $("screen-settings");
+    eq("8 title", $("settings-title").textContent, "Settings");
+    ok("8 Back follows the title on the same row", $("settings-title").parentElement === $("settings-back").parentElement &&
+      !!($("settings-title").compareDocumentPosition($("settings-back")) & 4));
+    const kids = [...st.children].filter(e => e.matches(".units, #notify, #password-form"));
+    eq("8 cards in order", kids.map(e => e.matches(".units") ? "units" : e.id).join(">"), "units>notify>password-form");
+    ok("8 screen itself is not a .card", !st.classList.contains("card") && !st.querySelector(".card"));
+    eq("8 three cards have surface backgrounds", kids.map(e => win.getComputedStyle(e).backgroundColor).filter(c => c !== "rgba(0, 0, 0, 0)").length, 3);
+    const fs = st.querySelector("fieldset.units");
+    eq("9 fieldset legend", fs && fs.querySelector("legend").textContent, "Temperature unit");
+    const radios = [...fs.querySelectorAll('input[type=radio][name=unit]')];
+    eq("9 two native radios C, F", radios.map(r => r.value).join(","), "C,F");
+    ok("9 radios not display:none or hidden", radios.every(r => !r.hidden && win.getComputedStyle(r).display !== "none" && win.getComputedStyle(r).visibility !== "hidden"));
+    ok("9 radios are inside a segmented wrapper", radios.every(r => r.closest(".segmented")));
+    ok("9 C checked, its label is the selected segment", radios[0].checked && radios[0].parentElement.matches(":has(input:checked)"));
+    const noMotion = doc.createElement("style"); noMotion.textContent = "*{transition:none!important}"; doc.head.appendChild(noMotion);
+    const bg = r => win.getComputedStyle(r.parentElement).backgroundColor;
+    const before = bg(radios[0]);
+    setUnit("F"); await wait(300);
+    eq("9 Saved shown", text("unit-msg"), "Saved");
+    ok("9 checked segment moves and looks selected", radios[1].checked && bg(radios[1]) !== bg(radios[0]) && before !== bg(radios[0]), bg(radios[1]) + " vs " + bg(radios[0]));
+
+    // 10. 400px layout
+    const many = Array.from({ length: 10 }, (_, i) => row(200 + i, "A very long city name number " + i));
+    const lots = many.flatMap(r => [rd(r.city_id, "open-meteo", "day", 20, 3), rd(r.city_id, "met-norway", "day", 20, "rain"),
+      rd(r.city_id, "open-meteo", "night", 10, 0), rd(r.city_id, "met-norway", "night", 10, null)]);
+    await open(many, lots, 400);
+    mock.fetch[GEO_URL] = { results: Array.from({ length: 10 }, (_, i) => ({ id: 900 + i, name: "Springfield" + i, latitude: 1, longitude: 2,
+      admin1: "Some Long Region Name", country: "Some Country With A Long Name", timezone: "UTC" })) };
+    type($("city-query"), "Spring"); $("city-search").dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true })); await settle();
+    const de = doc.documentElement;
+    eq("10 ten results", doc.querySelectorAll("#city-results li").length, 10);
+    ok("10 cities page: no sideways scroll at 400px", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+    ok("10 result rows keep their Add pill inside the row", [...doc.querySelectorAll("#city-results li")].every(li => li.getBoundingClientRect().right <= de.clientWidth && li.querySelector("button").getBoundingClientRect().right <= de.clientWidth));
+    ok("10 large temps and captions fit the card", [...doc.querySelectorAll(".city-temp, .city-caption")].every(e => e.scrollWidth <= e.clientWidth + 1));
+    const rules = [{ id: 1, city_id: 1, metric: "temperature", condition: "outside", slot: "both", min_value: 0, max_value: 30, created_at: "2026-10-21T00:00:00Z" },
+      { id: 2, city_id: 1, metric: "humidity", condition: "above", slot: "day", min_value: null, max_value: 80, created_at: "2026-10-22T00:00:00Z" }];
+    sb.replies["profiles.select"] = { data: null, error: null };
+    sb.replies["rpc.notify_allowed"] = { data: true, error: null };
+    sb.replies["notification_settings.select"] = { data: { enabled: true, timezone: "UTC", send_hour: 7, daily: true, weekly: false, weekly_day: 1, digest_city_ids: null }, error: null };
+    sb.replies["alert_rules.select"] = { data: rules, error: null };
+    await open([row(1, "A very long city name number 1")], [], 400);
+    $("settings-open").click(); await settle();
+    ok("10 settings has two alerts", doc.querySelectorAll("button[data-delete]").length === 2);
+    ok("10 settings: no sideways scroll at 400px", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+
+    // 11. Glyphs and illustration
+    await open([row(1)], [rd(1, "open-meteo", "day", 10, 0)]);
+    const pics = [...doc.querySelectorAll("#screen-shell img")];
+    ok("11 every picture on Your cities is alt='' from assets/ and not focusable", pics.length >= 2 && pics.every(i => i.getAttribute("alt") === "" && /^assets\/.+\.svg$/.test(src(i)) && i.tabIndex < 0));
+    ok("11 glyph has width and height", q(".city-glyph").getAttribute("width") && q(".city-glyph").getAttribute("height"));
+    ok("11 no pictures inside links or buttons on the cities screen", pics.every(i => !i.closest("a, button")));
+    const sImgs = [...html.matchAll(/<img\b[^>]*>/g)].map(m => m[0]).filter(t => /assets\/(search|empty|wx-)/.test(t));
+    ok("11 index.html pictures for this spec have alt=\"\"", sImgs.length >= 1 && sImgs.every(t => /alt=""/.test(t)), sImgs.join(" "));
+
+    // 12. Tokens, scripts
+    const block = sel => { const i = css.indexOf(sel); const o = css.indexOf("{", i), c = css.indexOf("}", o); return css.slice(o + 1, c); };
+    for (const [name, sel] of [[":root", ":root {"], ["prefers-color-scheme dark", ':root:not([data-theme="light"])'], ["data-theme dark", ':root[data-theme="dark"]']]) {
+      const b = block(sel);
+      ok("12 --seg-track and --seg-hover in " + name, /--seg-track\s*:/.test(b) && /--seg-hover\s*:/.test(b));
+    }
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:"));
+    eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign]];
 
   async function run() {
     const saved = {};
