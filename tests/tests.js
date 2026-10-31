@@ -1040,8 +1040,11 @@
     const font = block(":root {").match(/--font\s*:([^;]+);/)[1];
     ok("12 --font ends in a generic family", /,\s*(sans-serif|system-ui)\s*$/.test(font.trim()) && /system-ui|-apple-system|Segoe UI/.test(font), font);
     ok("12 reduced-motion rule removes animations and transitions", /prefers-reduced-motion:\s*reduce[\s\S]*?(animation|transition)[^;]*(none|0(\.\d+)?s|0\.01ms)/.test(css));
-    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:"));
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:").replace(/\?v=\d+$/, ""));
     eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+    const local = [...html.matchAll(/<(?:script[^>]*\ssrc|link[^>]+rel="stylesheet"[^>]*\shref)="([^"]+)"/g)].map(m => m[1]).filter(u => !/^https?:/.test(u));
+    const vers = local.map(u => (u.match(/\?v=(\d{10})$/) || [])[1]);
+    ok("12 every local script and stylesheet has the same ?v= cache-busting query", local.length >= 7 && vers.every(v => v && v === vers[0]), local.join(","));
   }
 
   // Cities and Settings redesign (spec 0006). Not automatable here: real dark mode, focus rings, contrast, reduced motion,
@@ -1194,7 +1197,7 @@
       const b = block(sel);
       ok("12 --seg-track and --seg-hover in " + name, /--seg-track\s*:/.test(b) && /--seg-hover\s*:/.test(b));
     }
-    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:"));
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:").replace(/\?v=\d+$/, ""));
     eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
   }
 
@@ -1211,7 +1214,7 @@
         .replace(/<link[^>]+fonts\.(googleapis|gstatic)\.com[^>]*>/g, "")
         // Offline: no supabase-js or Chart.js from the CDN and no real config; INJECT provides stand-ins for all three.
         .replace(/<script[^>]+cdn\.jsdelivr\.net[^>]*><\/script>/g, "")
-        .replace(/<script src="config\.js"><\/script>/, "")
+        .replace(/<script src="config\.js(\?[^"]*)?"><\/script>/, "")
         .replace(/<head>/i, "<head>" + INJECT);
       for (const [name, fn] of GROUPS) {
         group = name;
