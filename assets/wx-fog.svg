@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Fog</title>
+  <path transform="translate(2 -3.2) scale(0.85)" d="M9 25H24A5 5 0 0 0 22.94 15.11A7 7 0 0 0 9.07 15A5 5 0 0 0 9 25Z" fill="#D5DCE4" stroke="#5E6B7A" stroke-width="2.35" stroke-linejoin="round"/>
+  <path d="M6 22.5H26M6 27H10M14 27H26" fill="none" stroke="#5E6B7A" stroke-width="2" stroke-linecap="round"/>
+</svg>

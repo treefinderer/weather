@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Partly cloudy</title>
+  <g transform="translate(0.6 1.6)">
+    <g stroke="#D97706" stroke-width="2" stroke-linecap="round">
+      <path d="M12.5 2.5V5M2.5 12.5H5M20 12.5H22.5M5.43 5.43L7.2 7.2M17.8 7.2L19.57 5.43M5.43 19.57L7.2 17.8"/>
+    </g>
+    <circle cx="12.5" cy="12.5" r="5" fill="#FFC21A" stroke="#D97706" stroke-width="2"/>
+    <path transform="translate(6.5 7.5) scale(0.75)" d="M9 25H24A5 5 0 0 0 22.94 15.11A7 7 0 0 0 9.07 15A5 5 0 0 0 9 25Z" fill="#D5DCE4" stroke="#5E6B7A" stroke-width="2.67" stroke-linejoin="round"/>
+  </g>
+</svg>
