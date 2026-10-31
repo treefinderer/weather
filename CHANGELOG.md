@@ -2,6 +2,7 @@
 
 ## 2026-10-30
 
+- Your cities and Settings redesigned: large titles, city cards with a big averaged temperature, condition icon and caption, an empty-state picture, grouped Settings cards and a °C/°F segmented control. ([spec 0006](docs/specs/0006-cities-settings-redesign.md))
 - Renamed to Weather Insights, with a new logo and favicon, an apple.com-style landing page with original illustrations explaining what the site does, a footer crediting the data sources, and a refreshed look on every screen. ([spec 0005](docs/specs/0005-weather-insights-look.md))
 
 ## 2026-10-28
