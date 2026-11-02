@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
-<link rel="stylesheet" href="style.css?v=2026103002">
+<link rel="stylesheet" href="style.css?v=2026110101">
 </head>
 <body>
 <header class="topbar">
@@ -199,13 +199,14 @@
     <form class="city-search" id="city-search" role="search" novalidate>
       <label for="city-query">Search for a city</label>
       <div class="city-search-row">
-        <span class="search-field"><input id="city-query" type="search" autocomplete="off" maxlength="100"></span>
-        <button type="submit" class="btn" id="city-search-submit">Search</button>
+        <span class="search-field"><input id="city-query" type="search" autocomplete="off" maxlength="100" role="combobox"
+          aria-autocomplete="list" aria-expanded="false" aria-controls="city-results"></span>
+        <ul class="city-results" id="city-results" role="listbox" aria-label="Suggestions" hidden></ul>
       </div>
     </form>
+    <p class="visually-hidden" id="city-results-status" aria-live="polite"></p>
     <p class="msg msg-error" id="cities-limit" hidden>You can follow up to 10 cities. Remove one to add another.</p>
     <p class="msg" id="search-msg" aria-live="polite"></p>
-    <ul class="city-results" id="city-results" aria-label="Search results" hidden></ul>
     <p class="msg" id="cities-msg" aria-live="polite"></p>
     <img class="cities-empty-art" id="cities-empty-art" src="assets/empty-cities.svg" alt="" width="240" height="160" hidden>
     <p class="lede" id="cities-status" aria-live="polite">Loading your cities…</p>
@@ -450,12 +451,12 @@
   </div>
 </footer>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=2026103002"></script>
-<script src="common.js?v=2026103002"></script>
-<script src="auth.js?v=2026103002"></script>
-<script src="cities.js?v=2026103002"></script>
+<script src="config.js?v=2026110101"></script>
+<script src="common.js?v=2026110101"></script>
+<script src="auth.js?v=2026110101"></script>
+<script src="cities.js?v=2026110101"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
-<script src="history.js?v=2026103002"></script>
-<script src="notifications.js?v=2026103002"></script>
+<script src="history.js?v=2026110101"></script>
+<script src="notifications.js?v=2026110101"></script>
 </body>
 </html>

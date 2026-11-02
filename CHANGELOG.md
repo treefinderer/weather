@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-01
+
+- City search is now an autocomplete: after 2 letters up to 10 suggestions drop down and update as you type, and one click (or arrow keys and Enter) adds the city. The Search button is gone. ([spec 0008](docs/specs/0008-city-search-typeahead.md))
+
 ## 2026-10-30
 
 - History redesigned: large city title, one controls card with a Source switch, period summary tiles (day high, night low, day and night averages), chart cards with legends and the table in its own card. ([spec 0007](docs/specs/0007-history-redesign.md))

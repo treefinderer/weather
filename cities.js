@@ -7,6 +7,7 @@
   const LIMIT = 10;
   const TIMEOUT_MS = 20000;
   const SEARCH_TIMEOUT_MS = 10000;
+  const DEBOUNCE_MS = 300;
   const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
   const SOURCES = [["open-meteo", "Open-Meteo"], ["met-norway", "MET Norway"]];
   const SLOTS = [["day", "Day (12pm)"], ["night", "Night (12am)"]];
@@ -33,12 +34,15 @@
   let state = "idle";        // "loading" | "error" | "ready"
   let cities = [];           // followed cities in added_at order: { id, name, admin1, country, lat, lon, timezone }
   let readings = {};         // city id -> latest_readings rows
-  let results = [];          // the current search results, shaped like cities
+  let results = [];          // the current suggestions, shaped like cities
   const adding = new Set();  // result ids with a follow_city call running
   const removing = new Set();
   const removeFailed = new Set();
-  let searching = false;
   let searchSeq = 0;         // bumped by every search and every clear, so a late reply for an older search is dropped
+  let searchTimer = null;    // the debounce timer of the next search
+  let pendingQuery = null;   // the query of the search still running
+  let shownQuery = null;     // the query whose suggestions are in the list
+  let active = -1;           // index of the highlighted suggestion, -1 for none
 
   function setMsg(id, text, kind) {
     const el = $(id);
@@ -97,33 +101,76 @@
     $("cities-empty-art").hidden = status !== MSG.empty;
   }
 
-  // Sets each result's button from the state; keeps the same elements so keyboard focus stays put.
+  // A suggestion can be chosen when the list is ready, nothing is being added, and it isn't followed or over the limit.
+  const choosable = r => state === "ready" && !adding.size && !follows(r.id) && cities.length < LIMIT;
+  // Sets each suggestion's status, disabled state and accessible name from the state; keeps the same elements.
   function syncResults() {
-    $("city-results").querySelectorAll("button[data-id]").forEach(btn => {
-      const id = Number(btn.dataset.id);
-      const r = results.find(x => x.id === id);
+    const list = $("city-results");
+    list.classList.toggle("is-busy", adding.size > 0);
+    list.classList.toggle("is-full", state === "ready" && cities.length >= LIMIT);
+    list.querySelectorAll("li[data-id]").forEach(li => {
+      const r = results[Number(li.dataset.index)];
       if (!r) return;
-      const label = follows(id) ? "Added" : adding.has(id) ? "Adding…" : "Add";
-      btn.textContent = label;
-      btn.setAttribute("aria-label", label + " " + place(r));
-      btn.disabled = label !== "Add" || state !== "ready" || cities.length >= LIMIT;
+      const status = follows(r.id) ? "Added" : adding.has(r.id) ? "Adding…" : "";
+      const tag = li.querySelector(".city-result-status");
+      tag.textContent = status;
+      tag.hidden = !status;
+      li.setAttribute("aria-label", place(r) + (status === "Added" ? ", already added" : status ? ", adding" : ""));
+      li.setAttribute("aria-disabled", String(!choosable(r)));
     });
   }
   function renderResults() {
     const list = $("city-results");
     list.textContent = "";
-    results.forEach(r => {
+    active = -1;
+    $("city-query").removeAttribute("aria-activedescendant");
+    results.forEach((r, i) => {
       const li = el("li", "city-result");
-      li.appendChild(el("span", "city-result-name", place(r)));
-      const btn = el("button", "btn-secondary", "Add");
-      btn.type = "button";
-      btn.dataset.id = r.id;
-      btn.addEventListener("click", () => add(r));
-      li.appendChild(btn);
+      li.id = "city-option-" + i;
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", "false");
+      li.dataset.id = r.id;
+      li.dataset.index = i;
+      const text = el("span", "city-result-text");
+      text.appendChild(el("span", "city-result-name", r.name));
+      const rest = [r.admin1, r.country].filter(Boolean).join(", ");
+      if (rest) text.appendChild(el("span", "city-result-region", rest));
+      li.appendChild(text);
+      li.appendChild(el("span", "city-result-status"));
+      // Keeps focus in the input, so the click isn't lost to its blur.
+      li.addEventListener("mousedown", e => e.preventDefault());
+      li.addEventListener("click", () => { if (choosable(r)) add(r); });
       list.appendChild(li);
     });
-    list.hidden = !results.length;
+    if (!results.length) setOpen(false);
     syncResults();
+  }
+  // Opens or closes the list; the drop-in animation plays only when it goes from closed to open.
+  function setOpen(open) {
+    const list = $("city-results");
+    open = open && results.length > 0;
+    if (open && list.hidden) {
+      list.classList.remove("is-opening");
+      void list.offsetWidth;
+      list.classList.add("is-opening");
+    }
+    list.hidden = !open;
+    $("city-query").setAttribute("aria-expanded", String(open));
+    if (!open) setActive(-1);
+  }
+  const isOpen = () => !$("city-results").hidden;
+  // Highlights suggestion i (-1 for none); DOM focus stays in the input.
+  function setActive(i) {
+    active = i;
+    const input = $("city-query");
+    $("city-results").querySelectorAll("li[role=option]").forEach((li, n) => li.setAttribute("aria-selected", String(n === i)));
+    const li = i >= 0 ? $("city-option-" + i) : null;
+    if (li) {
+      input.setAttribute("aria-activedescendant", li.id);
+      li.scrollIntoView({ block: "nearest" });
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
   }
 
   function entry(sourceLabel, r) {
@@ -263,14 +310,9 @@
     adding.clear();
     removing.clear();
     removeFailed.clear();
-    searching = false;
-    searchSeq++;
     $("city-query").value = "";
-    $("city-search-submit").disabled = false;
-    $("city-search-submit").textContent = "Search";
-    setMsg("search-msg", "");
+    clearSearch();
     setMsg("cities-msg", "");
-    renderResults();
     renderAll();
   }
 
@@ -301,29 +343,23 @@
   }
 
   // --- Search ---
-  $("city-search").addEventListener("submit", async e => {
-    e.preventDefault();
-    if (searching) return;
-    const query = $("city-query").value.trim();
-    if (query.length < 2) return setMsg("search-msg", MSG.short, "error");
+  // Autocomplete (spec 0008): typing 2+ characters searches after a short pause, and the latest reply fills the list.
+  const queryText = () => $("city-query").value.trim();
+  async function search(query) {
     const g = gen, seq = ++searchSeq;
-    const btn = $("city-search-submit");
-    searching = true;
-    btn.disabled = true;
-    btn.textContent = "Searching…";
-    setMsg("search-msg", "");
+    pendingQuery = query;
     let found = null;
     try {
       const body = await getJson(GEO_URL + "?name=" + encodeURIComponent(query) + "&count=10&language=en&format=json");
       found = Array.isArray(body && body.results) ? body.results : [];
     } catch (err) { /* found stays null */ }
     if (g !== gen || seq !== searchSeq) return;
-    searching = false;
-    btn.disabled = false;
-    btn.textContent = "Search";
+    pendingQuery = null;
     if (!found) {
       results = [];
+      shownQuery = null;
       renderResults();
+      $("city-results-status").textContent = "";
       return setMsg("search-msg", MSG.searchFailed, "error");
     }
     // Places without a time zone or coordinates can't be collected, so they aren't offered.
@@ -332,29 +368,99 @@
       .slice(0, 10)
       .map(r => ({ id: Number(r.id), name: r.name, admin1: r.admin1 || "", country: r.country || "",
         lat: r.latitude, lon: r.longitude, timezone: r.timezone }));
+    shownQuery = query;
     renderResults();
-    if (!results.length) setMsg("search-msg", 'No places found for "' + query + '".', "error");
-  });
+    if (!results.length) {
+      $("city-results-status").textContent = "";
+      return setMsg("search-msg", 'No places found for "' + query + '".', "error");
+    }
+    setMsg("search-msg", "");
+    setOpen(true);
+    $("city-results-status").textContent = results.length === 1 ? "1 suggestion available." : results.length + " suggestions available.";
+  }
+  // Runs the debounced search now. The same query as the list (or the one running) sends no request.
+  function runSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+    const query = queryText();
+    if (query.length < 2 || query === pendingQuery) return;
+    if (query === shownQuery) {
+      // Back to the shown query: a reply for a longer query still running must not replace it.
+      searchSeq++;
+      pendingQuery = null;
+      return setOpen(true);
+    }
+    search(query);
+  }
 
-  // Hides the results and the search message, and drops the reply of any search still running.
+  // Closes the list, clears the search messages, and drops the pending search and any reply still running.
   function clearSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = null;
     searchSeq++;
-    searching = false;
-    $("city-search-submit").disabled = false;
-    $("city-search-submit").textContent = "Search";
+    pendingQuery = null;
+    shownQuery = null;
     results = [];
     renderResults();
     setMsg("search-msg", "");
+    $("city-results-status").textContent = "";
   }
-  // Emptying the box (typing, cut, or the native clear button) clears the results.
+  // Each edit (typing, paste, cut, autofill, the native clear button) restarts the pause; under 2 characters clears.
   $("city-query").addEventListener("input", () => {
-    if (!$("city-query").value.trim()) clearSearch();
+    setActive(-1);
+    if (queryText().length < 2) return clearSearch();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, DEBOUNCE_MS);
   });
-  // Escape closes the results but keeps the typed text; with no results it is left alone.
-  $("city-query").addEventListener("keydown", e => {
-    if (e.key !== "Escape" || !results.length) return;
+  // Enter with nothing highlighted: runs a pending search at once, or asks for 2 letters. Never reloads the page.
+  function enterWithoutHighlight() {
+    if (queryText().length < 2) return setMsg("search-msg", MSG.short, "error");
+    if (searchTimer) runSearch();
+  }
+  $("city-search").addEventListener("submit", e => {
     e.preventDefault();
-    clearSearch();
+    enterWithoutHighlight();
+  });
+  // Combobox keys: Down/Up move the highlight, Enter chooses, Escape and Tab close.
+  $("city-query").addEventListener("keydown", e => {
+    const open = isOpen();
+    if (e.key === "ArrowDown") {
+      if (open) {
+        e.preventDefault();
+        setActive(Math.min(active + 1, results.length - 1));
+      } else if (results.length && queryText() === shownQuery) {
+        e.preventDefault();
+        setOpen(true);
+      }
+    } else if (e.key === "ArrowUp") {
+      if (open && active >= 0) {
+        e.preventDefault();
+        setActive(active - 1);
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && active >= 0) {
+        const r = results[active];
+        if (r && choosable(r)) add(r);
+      } else {
+        enterWithoutHighlight();
+      }
+    } else if (e.key === "Escape") {
+      // With the list closed, the native type="search" Escape is left alone.
+      if (!open) return;
+      e.preventDefault();
+      setOpen(false);
+    } else if (e.key === "Tab") {
+      if (open) setOpen(false);
+    }
+  });
+  // Clicking back into the input reopens the list it already has, without a request.
+  $("city-query").addEventListener("click", () => {
+    if (!isOpen() && results.length && queryText() === shownQuery) setOpen(true);
+  });
+  // Clicking or tapping outside the input and the list closes the list.
+  document.addEventListener("click", e => {
+    if (isOpen() && !e.target.closest(".city-search-row")) setOpen(false);
   });
 
   // --- Add and remove ---
@@ -379,8 +485,11 @@
       return;
     }
     cities.push(Object.assign({}, r));
+    $("city-query").value = "";
+    clearSearch();
     renderAll();
     setMsg("cities-msg", "Added " + r.name + ".", "ok");
+    $("city-query").focus();
     loadReadings(r.id);
   }
 
