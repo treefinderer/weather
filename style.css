@@ -27,6 +27,9 @@
   --seg-hover: #dcdce1;
   --option-hover: #f5f5f7;
   --option-active: #eef4fd;
+  --pic-empty: #f5f5f7;
+  --pick: #1d1d1f;
+  --pick-bg: #eef4fd;
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -59,6 +62,9 @@
   --seg-hover: #2c2c2e;
   --option-hover: #2c2c2e;
   --option-active: #14304d;
+  --pic-empty: #2c2c2e;
+  --pick: #f5f5f7;
+  --pick-bg: #14304d;
   }
 }
 :root[data-theme="dark"] {
@@ -90,6 +96,9 @@
   --seg-hover: #2c2c2e;
   --option-hover: #2c2c2e;
   --option-active: #14304d;
+  --pic-empty: #2c2c2e;
+  --pick: #f5f5f7;
+  --pick-bg: #14304d;
 }
 
 * { box-sizing: border-box; }
@@ -284,6 +293,23 @@ form .link { display: block; margin-bottom: 12px; }
 .city-glyph { flex: none; display: block; width: 40px; height: 40px; }
 .city-caption { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.43; letter-spacing: 0; overflow-wrap: anywhere; }
 .slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 20px; }
+/* Satellite pictures (spec 0009): a square frame with a placeholder under the image, and a muted caption */
+.city-summary:has(+ .city-media) { margin-bottom: 16px; padding-bottom: 0; border-bottom: 0; }
+.city-card > .lede + .city-media { margin-top: 16px; }
+.city-media { display: flex; flex-direction: column; gap: 16px; min-width: 0; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--hairline); }
+.city-media:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+.city-picture, .history-picture { width: 100%; min-width: 0; margin: 0; }
+.city-picture { max-width: 320px; }
+.pic-frame { position: relative; aspect-ratio: 1 / 1; overflow: hidden; background: var(--pic-empty); border-radius: 14px; }
+.pic-frame::after { content: ""; position: absolute; inset: 0; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--hairline); pointer-events: none; }
+.pic-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; }
+.pic-empty-glyph { flex: none; width: 32px; height: 32px; background: var(--muted);
+  -webkit-mask: url(assets/pic-empty.svg) center / contain no-repeat; mask: url(assets/pic-empty.svg) center / contain no-repeat; }
+.pic-empty-text { max-width: 22em; margin: 0; color: var(--muted); font-size: 14px; font-weight: 500; line-height: 1.4; letter-spacing: 0; overflow-wrap: anywhere; }
+.pic-img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 150ms ease; }
+.pic-img.is-loaded { opacity: 1; }
+.pic-marker { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; transform: translate(-50%, -50%); pointer-events: none; }
+.pic-caption { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.4; letter-spacing: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .slot { min-width: 0; }
 .slot-title { margin: 0 0 10px; color: var(--muted); font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: 0; }
 .readings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr)); gap: 8px; }
@@ -347,6 +373,22 @@ form .link { display: block; margin-bottom: 12px; }
 .legend-night .legend-glyph::before { background: repeating-linear-gradient(90deg, var(--chart-night) 0 6px, transparent 6px 10px); }
 .legend-night .legend-glyph::after { width: 6px; height: 6px; background: var(--chart-night); border-radius: 0; }
 .chart-box { position: relative; height: clamp(240px, 12vw + 192px, 320px); min-width: 0; }
+.chart-box canvas { display: block; }
+#history-temp-chart:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: 8px; }
+#history-temp-hint { margin: 12px 0 0; }
+.chart-card.pic-card { padding: 20px; }
+#screen-history .pic-card h3 { margin-bottom: 16px; }
+.pic-card .history-picture, .pic-nav { max-width: 480px; }
+.pic-nav { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.pic-nav .btn-secondary { flex: none; }
+.pic-label { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.35; letter-spacing: 0; text-align: center; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (min-width: 900px) {
+  .history-charts { grid-template-columns: minmax(0, 1fr) 360px; align-items: stretch; }
+  #history-charts-msg, #history-avg-card { grid-column: 1 / -1; }
+  #history-temp-card { display: flex; flex-direction: column; }
+  #history-temp-card .chart-box { flex: 1 1 auto; height: auto; min-height: clamp(240px, 12vw + 192px, 320px); }
+  #history-temp-card[hidden] + .pic-card { grid-column: 1 / -1; width: 100%; max-width: 480px; }
+}
 .history-table-card { margin-top: 16px; }
 #history-table-title { margin-bottom: 16px; }
 .history-table-card .hint { margin: 12px 0 0; }
@@ -360,6 +402,17 @@ form .link { display: block; margin-bottom: 12px; }
 .history-table .date { position: sticky; left: 0; z-index: 1; text-align: left; font-weight: 500; background: var(--surface); border-right: 1px solid var(--hairline); }
 .history-table thead .date { z-index: 2; font-weight: 600; }
 .history-table .slot-start { border-left: 1px solid var(--hairline); }
+/* The viewer's date and slot (spec 0009): an outlined block on the Day or Night cells, a bar on the Date cell */
+.history-table tbody td { cursor: pointer; }
+.history-table tbody td.is-pick { font-weight: 600; background: var(--pick-bg); box-shadow: inset 0 2px 0 var(--pick), inset 0 -2px 0 var(--pick); }
+.history-table tbody td.is-pick-first { box-shadow: inset 0 2px 0 var(--pick), inset 0 -2px 0 var(--pick), inset 2px 0 0 var(--pick); }
+.history-table tbody td.is-pick-last { box-shadow: inset 0 2px 0 var(--pick), inset 0 -2px 0 var(--pick), inset -2px 0 0 var(--pick); }
+.history-table tbody td.is-pick-first.is-pick-last { box-shadow: inset 0 0 0 2px var(--pick); }
+.history-table tbody .is-pick-date { font-weight: 700; box-shadow: inset 3px 0 0 var(--pick); }
+@media (hover: hover) {
+  .history-table tr:has(td[data-slot="day"]:hover) td[data-slot="day"]:not(.is-pick),
+  .history-table tr:has(td[data-slot="night"]:hover) td[data-slot="night"]:not(.is-pick) { background: var(--option-hover); }
+}
 .history-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 16px; }
 .history-pager .btn-secondary { flex: none; }
 .history-page-info { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--muted); font-size: 14px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -424,6 +477,7 @@ form .link { display: block; margin-bottom: 12px; }
   .city-head { margin-bottom: 12px; }
   .city-glyph { width: 32px; height: 32px; }
   .city-summary { margin-bottom: 16px; padding-bottom: 16px; }
+  .city-media { margin-bottom: 16px; padding-bottom: 16px; }
   .slots { gap: 16px; }
   .city-list { gap: 12px; }
   #cities-title, #settings-title { letter-spacing: -0.02em; }
@@ -444,7 +498,7 @@ form .link { display: block; margin-bottom: 12px; }
   .history-dates .history-field { flex-basis: 100%; }
   .history-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
   .stat { padding: 14px 16px; }
-  .chart-card, .history-table-card { padding: 16px; }
+  .chart-card, .history-table-card, .chart-card.pic-card { padding: 16px; }
   .history-table th, .history-table td { padding: 8px 12px; }
   .footer-inner { padding: 20px 16px 32px; }
 }

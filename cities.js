@@ -1,5 +1,6 @@
 // Your cities: search (Open-Meteo geocoding), follow up to 10 cities, remove them, and show each city's
-// latest day and night reading per source in the user's unit (spec 0002). Uses Wx.supabase, Wx.user, Wx.unit and Wx.fmt.
+// latest day and night reading per source in the user's unit (spec 0002), and its newest satellite picture (spec 0009).
+// Uses Wx.supabase, Wx.user, Wx.unit, Wx.fmt and Wx.pic.
 (function () {
   "use strict";
   const Wx = window.Wx;
@@ -25,7 +26,9 @@
     addFailed: "Can't add the city. Check your connection and try again.",
     removeFailed: "Can't remove the city. Try again.",
     noReadings: "No readings yet. First reading at 12am/12pm local time.",
-    noReading: "No reading yet"
+    noReading: "No reading yet",
+    noPicture: "No satellite picture yet",
+    pictureFailed: "Picture unavailable"
   };
 
   // --- State, reset whenever the signed-in user changes ---
@@ -34,6 +37,10 @@
   let state = "idle";        // "loading" | "error" | "ready"
   let cities = [];           // followed cities in added_at order: { id, name, admin1, country, lat, lon, timezone }
   let readings = {};         // city id -> latest_readings rows
+  let pictures = {};         // city id -> its latest_pictures row
+  let picStatus = {};        // city id -> "loading" | "failed" | "ready"
+  let picUrls = {};          // storage path -> signed URL
+  const media = new Map();   // city id -> its picture block, kept across re-renders so a unit change reloads no picture
   let results = [];          // the current suggestions, shaped like cities
   const adding = new Set();  // result ids with a follow_city call running
   const removing = new Set();
@@ -228,6 +235,38 @@
     box.appendChild(el("p", "city-caption", who + " · " + (slotLabel ? slotLabel[1] : top.slot) + ", " + day(top.local_date)));
     return box;
   }
+  // The picture block (spec 0009), built once per city and updated in place.
+  function mediaFor(c) {
+    let m = media.get(c.id);
+    if (!m) {
+      const box = el("div", "city-media");
+      const fig = el("figure", "city-picture");
+      const f = Wx.pic.frame();
+      const caption = el("figcaption", "pic-caption");
+      fig.appendChild(f.frame);
+      fig.appendChild(caption);
+      box.appendChild(fig);
+      m = { box, f, caption, url: null };
+      media.set(c.id, m);
+    }
+    syncMedia(c, m);
+    return m.box;
+  }
+  // Loading shows the bare frame; no picture and a failure show a quiet placeholder and no caption.
+  function syncMedia(c, m) {
+    const status = picStatus[c.id], row = pictures[c.id];
+    const url = status === "ready" && row ? picUrls[row.storage_path] || null : null;
+    if (url && url === m.url) return;
+    m.url = url;
+    m.caption.hidden = !url;
+    if (url) {
+      m.caption.textContent = Wx.pic.caption(row);
+      Wx.pic.show(m.f, { url, row, city: c, lazy: true, failText: MSG.pictureFailed, onFail: () => { m.caption.hidden = true; } });
+    } else {
+      const text = status === "failed" || (status === "ready" && row) ? MSG.pictureFailed : status === "ready" ? MSG.noPicture : "";
+      Wx.pic.show(m.f, { text });
+    }
+  }
   function card(c) {
     const li = el("li", "city-card");
     li.dataset.id = c.id;
@@ -259,10 +298,12 @@
     const rows = readings[c.id] || [];
     if (!rows.length) {
       li.appendChild(el("p", "lede", MSG.noReadings));
+      li.appendChild(mediaFor(c));
       return li;
     }
     const sum = summary(rows);
     if (sum) li.appendChild(sum);
+    li.appendChild(mediaFor(c));
     const slots = el("div", "slots");
     SLOTS.forEach(([slot, slotLabel]) => {
       const group = el("section", "slot");
@@ -299,6 +340,7 @@
 
   // --- Loading ---
   const READING_COLS = "city_id, source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm, weather_code";
+  const PICTURE_COLS = "city_id, local_date, slot, layer, bbox, storage_path";
 
   function reset(user) {
     gen++;
@@ -306,6 +348,10 @@
     state = "idle";
     cities = [];
     readings = {};
+    pictures = {};
+    picStatus = {};
+    picUrls = {};
+    media.clear();
     results = [];
     adding.clear();
     removing.clear();
@@ -321,6 +367,8 @@
     if (!uid || !sb) return;
     state = "loading";
     renderAll();
+    // Pictures are optional: their query runs alongside, and its failure never blocks the list.
+    const pics = request(() => sb.from("latest_pictures").select(PICTURE_COLS));
     const [uc, lr] = await Promise.all([
       request(() => sb.from("user_cities").select("city_id, added_at, cities(id, name, admin1, country, lat, lon, timezone)")
         .eq("user_id", uid).order("added_at", { ascending: true })),
@@ -338,8 +386,32 @@
     }));
     readings = {};
     (lr.data || []).forEach(r => { (readings[r.city_id] = readings[r.city_id] || []).push(r); });
+    cities.forEach(c => { picStatus[c.id] = "loading"; });
     state = "ready";
     renderAll();
+    applyPictures(g, cities.map(c => c.id), await pics);
+  }
+
+  // Stores a latest_pictures reply for these cities, then signs their files in one batch call and updates the blocks.
+  async function applyPictures(g, ids, res) {
+    if (g !== gen) return;
+    const got = {};
+    if (!res.error) (res.data || []).forEach(r => { if (r && r.storage_path) got[Number(r.city_id)] = r; });
+    const paths = ids.map(id => got[id] && got[id].storage_path).filter(Boolean);
+    let failed = !!res.error;
+    if (!failed && paths.length) {
+      const signed = await request(() => Wx.pic.sign(Wx.supabase, paths).then(data => ({ data, error: null })));
+      if (g !== gen) return;
+      if (signed.error) failed = true;
+      else Object.assign(picUrls, signed.data);
+    }
+    ids.forEach(id => {
+      if (!follows(id)) return;
+      if (got[id]) pictures[id] = got[id]; else delete pictures[id];
+      picStatus[id] = failed ? "failed" : "ready";
+      const c = cities.find(x => x.id === id), m = media.get(id);
+      if (c && m) syncMedia(c, m);
+    });
   }
 
   // --- Search ---
@@ -491,6 +563,15 @@
     setMsg("cities-msg", "Added " + r.name + ".", "ok");
     $("city-query").focus();
     loadReadings(r.id);
+    loadPicture(r.id);
+  }
+
+  // A newly added city's newest picture, which exists when someone else already follows the city.
+  async function loadPicture(id) {
+    const g = gen;
+    picStatus[id] = "loading";
+    const res = await request(() => Wx.supabase.from("latest_pictures").select(PICTURE_COLS).eq("city_id", id));
+    applyPictures(g, [id], res);
   }
 
   // Fetches a newly added city's latest readings, so one that already has readings (followed by someone else,
@@ -524,6 +605,9 @@
     }
     const i = cities.findIndex(x => x.id === c.id);
     if (i >= 0) cities.splice(i, 1);
+    media.delete(c.id);
+    delete pictures[c.id];
+    delete picStatus[c.id];
     renderAll();
     setMsg("cities-msg", "Removed " + c.name + ".", "ok");
     const next = cities[i] || cities[cities.length - 1];

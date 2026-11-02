@@ -304,3 +304,62 @@ They need [Deno](https://deno.com) (`brew install deno`) and aren't part of `tes
 ```sh
 deno test --allow-read supabase/functions/notify/logic_test.ts
 ```
+
+## Spec 0009: satellite pictures (owner checklist)
+
+**Before you start:** the 0002 migration must be applied and the `collect` function deployed and running (0002 steps
+1 to 7). Spec 0009 needs no new secret: NASA GIBS is keyless.
+
+Do these once, after the 0009 branch is merged, in the Supabase dashboard. Replace `<project-ref>` as in the 0002
+steps.
+
+### 1. Run the migration
+
+SQL Editor → New query. Paste the whole contents of `supabase/migrations/0004_city_pictures.sql` and click Run.
+It creates the `city_pictures` table with its RLS policy, the `latest_pictures` view, the private `city-pictures`
+Storage bucket, and the Storage read policy `city_pictures_read_followed`.
+
+### 2. Check the bucket
+
+Storage → Buckets lists `city-pictures`, marked **Private** (not Public). Storage → Policies shows
+`city_pictures_read_followed` under `objects` (select, authenticated). In SQL:
+
+```sql
+select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'city-pictures';
+select policyname, cmd, roles from pg_policies where schemaname = 'storage' and policyname = 'city_pictures_read_followed';
+```
+
+The first query shows `public = false`. Don't switch the bucket to Public: it would reveal which cities users follow.
+
+### 3. Redeploy the collect function
+
+Edge Functions → collect → Code (or Edit). Replace `index.ts` with the new `supabase/functions/collect/index.ts` and
+`logic.ts` with the new `supabase/functions/collect/logic.ts`, then click Deploy. Leave out `logic_test.ts` and
+`fixtures/`. Afterwards, check that "Enforce JWT verification" is still **off** in the function's Details.
+
+**CLI alternative:** `npx supabase functions deploy collect --no-verify-jwt --project-ref <project-ref> --use-api`
+
+### 4. Check it works
+
+1. **Reply shape.** Run the function by hand as in the 0002 checks (step 7.2). The reply now also has
+   `pictures_due`, `pictures_inserted` and `pictures_skipped`. They're 0 unless a followed city is in its local 12am
+   to 3am window: pictures are fetched only then, for the previous local date.
+2. **Pictures.** The morning after the merge (once each followed city has passed its local midnight):
+   ```sql
+   select c.name, p.local_date, p.slot, p.layer, p.image_time, p.bytes, p.fetched_at
+   from city_pictures p join cities c on c.id = p.city_id
+   order by p.fetched_at desc limit 20;
+   ```
+   Each city has at most one row per date and slot. Storage → `city-pictures` holds the files as
+   `<city id>/<date>/day.jpg` and `night.jpg`.
+3. **Failures.** A picture that couldn't be fetched (GIBS down, a blank area, polar night) appears in the reply's
+   `failed` list with `"source":"gibs"`, and the collect logs show the reason. Readings are stored as usual. The
+   next hourly run in the same window tries again; after the window the picture is skipped for good.
+4. **The app.** Sign in: each city card shows its newest picture, or "No satellite picture yet" until the first one
+   arrives. History shows the "Satellite pictures" card beside the temperature chart.
+
+### Storage budget
+
+Every picture is kept (owner decision, 2026-11-01). One picture is about 15 to 80 KB, two a day per city, so roughly
+40 MB per city per year; a city followed by several users counts once. Revisit when Storage → Usage passes about 70%
+of the plan.

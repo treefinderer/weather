@@ -62,7 +62,9 @@
     return { data: rows.slice(r[0], Math.min(r[1], r[0] + 999) + 1), error: null };
   };
   // Chart.js stand-in, reset before each group. chart.loaded = false leaves window.Chart undefined (CDN failure).
-  //   chart.made    every chart constructed: { canvas, config, destroyed }, in order.
+  //   chart.made    every chart constructed: { canvas, config, destroyed, instance, updates, active }, in order.
+  //                 chart.tooltip is the last list the page gave the tooltip (the keyboard's selected point).
+  //   Storage: sb.replies["storage.createSignedUrls"] is a function (paths, seconds) returning { data: [{ path, signedUrl }], error }.
   let chart = null;
   function resetChart() { chart = { loaded: true, made: [] }; }
   resetChart();
@@ -91,6 +93,7 @@
     },
     sbListen(cb) { sb.listeners.push(cb); },
     chartSetup() { return chart.loaded; },
+    tip(a) { chart.tooltip = a; },
     chartMade(canvas, config) { const c = { canvas, config, destroyed: false }; chart.made.push(c); return c; },
     clockNow() { return clock.now; }
   };
@@ -112,8 +115,13 @@
   }
   // Stand-in for the Chart.js CDN script (stripped from the page): records each config and destroy().
   if (T.chartSetup()) {
-    window.Chart = function (canvas, config) { this.record = T.chartMade(canvas, config); this.config = config; };
+    window.Chart = function (canvas, config) { this.record = T.chartMade(canvas, config); this.record.instance = this; this.config = config; this.data = config.data; };
     window.Chart.prototype.destroy = function () { this.record.destroyed = true; };
+    // Selection hooks the History viewer uses (spec 0009): updates and the active tooltip are recorded on the chart's record.
+    window.Chart.prototype.update = function () { this.record.updates = (this.record.updates || 0) + 1; };
+    window.Chart.prototype.setActiveElements = function (a) { this.record.active = a; };
+    window.Chart.prototype.getDatasetMeta = function (i) { return { data: this.data.datasets[i].data.map(function () { return { x: 1, y: 1 }; }) }; };
+    window.Chart.prototype.tooltip = { setActiveElements: function (a) { parent.WxTest.tip(a); } };
   }
   window.fetch = function (url, init) {
     var text = T.respond(String(url), init);
@@ -145,7 +153,12 @@
       return q;
     }
     function rpc(name, params) { return call("rpc." + name, [params]); }
-    return { auth: auth, from: from, rpc: rpc };
+    // Storage: storage.from(bucket) is recorded as "storage.from", createSignedUrls(paths, seconds) as "storage.createSignedUrls".
+    var storage = { from: function (bucket) {
+      T.sbCall("storage.from", [bucket]);
+      return { createSignedUrls: function () { return call("storage.createSignedUrls", arguments); } };
+    } };
+    return { auth: auth, from: from, rpc: rpc, storage: storage };
   } };
 })();
 <\/script>`;
@@ -950,11 +963,11 @@
 
     // 6. Footer
     const links = () => [...doc.querySelectorAll("footer a")].map(a => a.getAttribute("href"));
-    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://github.com/treefinderer/weather"]) {
+    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://www.earthdata.nasa.gov/gibs", "https://github.com/treefinderer/weather"]) {
       ok("5 footer links " + href + " on Landing", links().includes(href) && visible(doc.querySelector('footer a[href="' + href + '"]')));
     }
     await signedIn();
-    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 3);
+    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 4);
     $("settings-open").click();
     ok("5 footer visible on Settings", visible(doc.querySelector("footer")));
 
@@ -1364,8 +1377,10 @@
     ok("10 stat tiles 2 by 2", new Set([...doc.querySelectorAll("#history-stats > li")].map(l => l.offsetLeft)).size === 2);
 
     // 11. Focus
+    // Spec 0009 deliberately adds the temperature canvas and the picture viewer's Older and Newer as the only chart-card stops.
     ok("11 tiles and chart cards are not focusable", [...doc.querySelectorAll("#history-stats, #history-stats li, .chart-card")].every(e => e.tabIndex < 0) &&
-      !doc.querySelector('#history-stats a, #history-stats button, .chart-card a, .chart-card button, .chart-card [tabindex]:not([tabindex="-1"])'));
+      !doc.querySelector('#history-stats a, #history-stats button, .chart-card a, .chart-card button:not(#history-pic-older):not(#history-pic-newer), ' +
+        '.chart-card [tabindex]:not([tabindex="-1"]):not(#history-temp-chart)'));
     ok("11 radios are focusable inputs", [...doc.querySelectorAll("#history-source input")].every(r => r.tabIndex === 0 || r.tabIndex === -1) && !doc.querySelector("#history-source [tabindex]"));
 
     // 12 (tokens) and scripts
@@ -1582,9 +1597,295 @@
     eq("12 script tag count unchanged", scripts, 8);
   }
 
+  // Satellite pictures (spec 0009). The collector (checks 2 to 5) is covered by logic_test.ts (Deno, run by hand) and a live run.
+  async function satellite() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; // a real 1px image, so the load event fires offline
+    const BROKEN = "data:image/jpeg;base64,AAAA";                // undecodable: the image error event fires
+    const IR = "VIIRS_NOAA20_Brightness_Temp_BandI5_Night", TC = "VIIRS_NOAA20_CorrectedReflectance_TrueColor";
+    const BOX = [47.5025, 0.304, 50.1975, 4.396]; // centred on Paris (48.85, 2.35)
+    const pic = (date, slot, o) => Object.assign({ city_id: 5, local_date: date, slot, layer: slot === "night" ? IR : TC, bbox: BOX,
+      storage_path: "5/" + date + "/" + slot + ".jpg" }, o);
+    const sign = (paths) => ({ data: paths.map(p => ({ path: p, signedUrl: PIXEL + "#" + p, error: null })), error: null });
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+    const html = await (await fetch("../index.html", { cache: "no-store" })).text();
+    const sql = await (await fetch("../supabase/migrations/0004_city_pictures.sql", { cache: "no-store" })).text();
+    const CREDIT = "Imagery: NASA GIBS / EOSDIS";
+    const txt = id => $(id).textContent;
+    const visible = e => !!e && e.getClientRects().length > 0;
+    const settle = () => wait(100);
+
+    // --- Migration text (criterion 1; policies themselves need a live project) ---
+    ok("1 unique (city_id, local_date, slot)", /unique \(city_id, local_date, slot\)/.test(sql));
+    ok("1 RLS enabled on city_pictures", /alter table public\.city_pictures enable row level security/i.test(sql));
+    ok("1 select policy limited to followed cities by auth.uid()", /create policy "city_pictures_select_followed" on public\.city_pictures\s+for select to authenticated using \(exists \([\s\S]*?user_cities[\s\S]*?auth\.uid\(\)/.test(sql));
+    ok("1 no write policies", !/create policy[^;]*for\s+(insert|update|delete|all)/i.test(sql));
+    ok("1 anon is revoked on the table and the view", /revoke all on public\.city_pictures, public\.latest_pictures from anon/.test(sql));
+    ok("1 view uses security_invoker", /create view public\.latest_pictures with \(security_invoker = true\)/.test(sql));
+    ok("1 bucket is private", /insert into storage\.buckets[^;]*values \('city-pictures', 'city-pictures', false/.test(sql.replace(/\s+/g, " ")));
+    ok("1 storage policy uses storage.foldername and the follow check", /create policy "[^"]+" on storage\.objects\s+for select to authenticated using \(\s*bucket_id = 'city-pictures'[\s\S]*?auth\.uid\(\)[\s\S]*?storage\.foldername\(name\)\)\[1\]/.test(sql));
+    ok("1 no service-role key in the migration", !/service_role|eyJ/i.test(sql.replace(/-- .*/g, "")));
+
+    // --- City card (criteria 6 and 7) ---
+    const rd = { city_id: 5, source: "open-meteo", slot: "day", local_date: "2026-10-25", temperature_c: 12, feels_like_c: 10,
+      humidity_pct: 60, wind_speed_ms: 5, precipitation_mm: 0.4 };
+    const cityRow = id => ({ city_id: id, added_at: "2026-10-0" + (id % 10) + "T00:00:00Z",
+      cities: { id, name: id === 5 ? "Paris" : "City" + id, admin1: "Île-de-France", country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris" } });
+    const openCards = async (ids, pics, o) => {
+      o = o || {};
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["user_cities.select"] = { data: ids.map(cityRow), error: null };
+      sb.replies["latest_readings.select"] = { data: o.noReadings ? [] : ids.map(id => Object.assign({}, rd, { city_id: id })), error: null };
+      sb.replies["latest_pictures.select"] = o.picReply || { data: pics, error: null };
+      sb.replies["storage.createSignedUrls"] = o.signReply || sign;
+      sb.calls = [];
+      await loadPage(o.width || 1280);
+      await settle();
+    };
+    const card = () => doc.querySelector("#city-list > li");
+    const figure = () => card().querySelector(".city-picture");
+    const shownImg = () => card().querySelector(".city-picture img.pic-img:not([hidden])");
+    const marker = () => card().querySelector(".pic-marker");
+
+    await openCards([5], [pic("2026-10-25", "night")]);
+    const im = shownImg();
+    ok("6 night picture shows an image", !!im && im.src.startsWith("data:image/gif") && im.src.endsWith("5/2026-10-25/night.jpg"), im && im.src);
+    eq("6 alt text", im && im.alt, "Satellite picture of the area around Paris, infrared clouds, Night (12am), Oct 25");
+    eq("6 caption", figure().querySelector("figcaption").textContent, "Infrared · Night (12am), Oct 25 · " + CREDIT);
+    ok("6 caption ends with the credit", figure().querySelector("figcaption").textContent.endsWith("Imagery: NASA GIBS / EOSDIS"));
+    ok("6 image is 512x512 and lazy", im.getAttribute("width") === "512" && im.getAttribute("height") === "512" && im.loading === "lazy");
+    ok("6 picture sits after the summary and before the slots", !!card().querySelector(".city-summary + .city-media") && !!card().querySelector(".city-media + .slots"));
+    const sg = sbCalls("storage.createSignedUrls");
+    ok("6 one batch signed-URL call for 3600 s, from the city-pictures bucket", sg.length === 1 && sg[0].args[1] === 3600 && sg[0].args[0].join() === "5/2026-10-25/night.jpg" &&
+      sbCalls("storage.from")[0].args[0] === "city-pictures", JSON.stringify(sg.map(c => c.args)));
+    ok("6 marker placed from the bbox (centre) and visible", !marker().hidden && Math.abs(parseFloat(marker().style.left) - 50) < 0.5 && Math.abs(parseFloat(marker().style.top) - 50) < 0.5,
+      marker().style.left + "," + marker().style.top);
+    ok("6 marker is decorative", marker().getAttribute("aria-hidden") === "true" && marker().alt === "");
+    const first = shownImg(), calls = sbCalls("storage.createSignedUrls").length;
+    $("settings-open").click();
+    const f = doc.querySelector('input[name="unit"][value="F"]');
+    f.checked = true; f.dispatchEvent(new win.Event("change", { bubbles: true })); await settle();
+    ok("6 a unit change reloads no picture", shownImg() === first && sbCalls("storage.createSignedUrls").length === calls);
+
+    await openCards([5], [pic("2026-10-25", "day")]);
+    eq("6 day picture alt", shownImg().alt, "Satellite picture of the area around Paris, true color, Day (12pm), Oct 25");
+    ok("6 day caption says True color", figure().querySelector("figcaption").textContent.startsWith("True color · Day (12pm), Oct 25"));
+
+    await openCards([5], [pic("2026-10-25", "night", { bbox: null })]);
+    ok("6 no bbox: image shows, marker stays hidden", !!shownImg() && marker().hidden);
+    await openCards([5], [pic("2026-10-25", "night", { bbox: [10, 10, 12, 12] })]);
+    ok("6 city outside the box: marker hidden", marker().hidden);
+    await openCards([5], [pic("2026-10-25", "night")], { noReadings: true });
+    ok("6 a city with no readings still shows its picture", !!shownImg() && !!card().querySelector(".lede + .city-media"));
+
+    await openCards([5], []);
+    ok("7 no picture: placeholder text, no image, no caption", figure().textContent.includes("No satellite picture yet") && !figure().querySelector("img") &&
+      figure().querySelector("figcaption").hidden);
+    ok("7 no picture: readings and summary unchanged, no error", !!card().querySelector(".city-summary") && !card().querySelector('[role="alert"]') && !card().textContent.includes("Picture unavailable"));
+    ok("7 the placeholder frame is reserved and square", figure().querySelector(".pic-frame").offsetWidth > 0 &&
+      figure().querySelector(".pic-frame").offsetWidth === figure().querySelector(".pic-frame").offsetHeight);
+    await openCards([5], [pic("2026-10-25", "night")], { signReply: { data: null, error: { message: "denied" } } });
+    ok("7 signed URL failure: Picture unavailable, no visible image", figure().textContent.includes("Picture unavailable") && !shownImg() && !card().querySelector(".pic-marker:not([hidden])"));
+    ok("7 signed URL failure: summary unchanged", !!card().querySelector(".city-summary"));
+    await openCards([5], [], { picReply: { data: null, error: SB_ERR.network } });
+    ok("7 latest_pictures failure: Picture unavailable", figure().textContent.includes("Picture unavailable") && !figure().querySelector("img"));
+    await openCards([5], [pic("2026-10-25", "night")], { signReply: paths => ({ data: paths.map(p => ({ path: p, signedUrl: BROKEN })), error: null }) });
+    ok("7 image error: image hidden, Picture unavailable, caption and marker hidden", !shownImg() && figure().textContent.includes("Picture unavailable") &&
+      figure().querySelector("figcaption").hidden && marker().hidden);
+    eq("7 an image error is not retried", sbCalls("storage.createSignedUrls").length, 1);
+
+    // --- History viewer (criteria 8 to 10) ---
+    const PARIS = { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris" };
+    const hr = (slot, d, t) => ({ source: "open-meteo", slot, local_date: d, temperature_c: t, feels_like_c: null, humidity_pct: 60, wind_speed_ms: 5,
+      precipitation_mm: 0.4, weather_code: null });
+    // Steps oldest to newest: Oct 24 night, Oct 25 night (picture only), Oct 26 day, Oct 27 night (picture), Oct 27 day (no picture).
+    const READ = [hr("day", "2026-10-27", 20), hr("night", "2026-10-27", 10), hr("day", "2026-10-26", 18), hr("night", "2026-10-24", 8)];
+    const PICS = [pic("2026-10-25", "night"), pic("2026-10-27", "night")];
+    const openHist = async (hash, readings, o) => {
+      o = o || {};
+      clock.now = Date.UTC(2026, 9, 27, 12);
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["user_cities.select"] = { data: [cityRow(5)], error: null };
+      sb.replies["cities.select"] = { data: PARIS, error: null };
+      sb.replies["readings.select"] = pages(readings);
+      sb.replies["city_pictures.select"] = o.picReply || { data: o.pics === undefined ? PICS : o.pics, error: null };
+      sb.replies["storage.createSignedUrls"] = o.signReply || sign;
+      await loadPage(o.width || 1280);
+      sb.calls = []; chart.made = [];
+      win.location.hash = hash; await settle();
+    };
+    const label = () => txt("history-pic-label");
+    const older = () => $("history-pic-older"), newer = () => $("history-pic-newer");
+    const vimg = () => $("history-pic-frame").querySelector("img.pic-img:not([hidden])");
+    const temp = () => liveCharts().find(c => c.canvas.id === "history-temp-chart");
+    const rowCells = (date, slot) => [...doc.querySelectorAll('#history-table tbody tr[data-date="' + date + '"] td[data-slot="' + slot + '"]')];
+
+    await openHist("#history/5/7d/avg", READ);
+    ok("8 the viewer card is an h3 titled Satellite pictures, after the temperature chart", $("history-pic-title").tagName === "H3" && txt("history-pic-title") === "Satellite pictures" &&
+      $("history-temp-card").nextElementSibling === $("history-pic-card"));
+    eq("8 opens on the newest slot", label(), "Day (12pm), Oct 27");
+    ok("8 newest slot with no picture shows the placeholder, no image", txt("history-pic-empty") === "No satellite picture for Day (12pm), Oct 27" && !vimg() && visible($("history-pic-empty")));
+    eq("8 caption is the credit alone on a placeholder", txt("history-pic-caption"), CREDIT);
+    ok("8 Newer disabled at the newest, Older enabled", newer().disabled && !older().disabled);
+    const sg2 = sbCalls("storage.createSignedUrls");
+    ok("8 one batch signed-URL call for the period's pictures", sg2.length === 1 && sg2[0].args[0].join() === "5/2026-10-25/night.jpg,5/2026-10-27/night.jpg", JSON.stringify(sg2.map(c => c.args[0])));
+    const live = $("history-pic-label");
+    ok("8 the label is a polite, atomic live region", live.getAttribute("aria-live") === "polite" && live.getAttribute("aria-atomic") === "true");
+    older().click(); await settle();
+    eq("8 Older steps back one slot (announced)", label(), "Night (12am), Oct 27");
+    ok("8 that slot's picture shows with alt and caption", !!vimg() && vimg().alt === "Satellite picture of the area around Paris, infrared clouds, Night (12am), Oct 27" &&
+      txt("history-pic-caption") === "Infrared · Night (12am), Oct 27 · " + CREDIT, vimg() && vimg().alt);
+    ok("8 viewer marker placed from the bbox", !!$("history-pic-frame").querySelector(".pic-marker:not([hidden])"));
+    older().click(); await settle();
+    eq("8 next step is Oct 26 day (reading, no picture)", label(), "Day (12pm), Oct 26");
+    ok("8 a slot with only readings shows the placeholder and no broken image", txt("history-pic-empty") === "No satellite picture for Day (12pm), Oct 26" && !vimg());
+    older().click(); await settle();
+    eq("8 picture-only slot is a step", label(), "Night (12am), Oct 25");
+    ok("8 picture-only slot shows its picture", !!vimg());
+    older().click(); await settle();
+    eq("8 oldest step", label(), "Night (12am), Oct 24");
+    ok("8 Older disabled at the oldest, Newer enabled", older().disabled && !newer().disabled);
+    newer().click(); await settle();
+    eq("8 Newer steps forward", label(), "Night (12am), Oct 25");
+
+    // 9. Chart: focus and keys (Chart.js handlers are called directly; the stand-in has no pointer events)
+    await openHist("#history/5/7d/avg", READ);
+    const canvas = $("history-temp-chart");
+    ok("9 the canvas is a Tab stop described by a hint", canvas.tabIndex === 0 && canvas.getAttribute("aria-describedby") === "history-temp-hint" &&
+      /arrow keys/i.test(txt("history-temp-hint")));
+    canvas.focus();
+    eq("9 focusing selects nothing (still the newest)", label(), "Day (12pm), Oct 27");
+    ok("9 Tab order: canvas, then Older, then Newer", doc.querySelector("#history-temp-chart") && [canvas, older(), newer()].every(e => e.tabIndex === 0) &&
+      !!(canvas.compareDocumentPosition(older()) & 4) && !!(older().compareDocumentPosition(newer()) & 4));
+    const prevented = !key(canvas, "ArrowLeft"); await settle();
+    ok("9 Left steps older and is default-prevented", label() === "Night (12am), Oct 27" && prevented, label());
+    ok("9 the tooltip shows that point (night, Oct 27 is index 3)", JSON.stringify(chart.tooltip) === JSON.stringify([{ datasetIndex: 1, index: 3 }]) &&
+      JSON.stringify(temp().active) === JSON.stringify([{ datasetIndex: 1, index: 3 }]), JSON.stringify(chart.tooltip));
+    key(canvas, "ArrowRight"); await settle();
+    eq("9 Right steps newer", label(), "Day (12pm), Oct 27");
+    key(canvas, "ArrowRight"); await settle();
+    eq("9 Right stops at the newest", label(), "Day (12pm), Oct 27");
+    const o = temp().config.options, hit = (index, datasetIndex) => ({ getElementsAtEventForMode: () => [{ index, datasetIndex, element: { skip: false } }] });
+    o.onHover({}, [], hit(1, 1));
+    eq("9 hovering the Oct 25 night point selects its picture", label(), "Night (12am), Oct 25");
+    ok("9 the hovered picture shows", !!vimg() && vimg().src.endsWith("5/2026-10-25/night.jpg"));
+    o.onClick({}, [], hit(2, 0));
+    eq("9 tapping the Oct 26 day point selects it", label(), "Day (12pm), Oct 26");
+    o.onHover({}, [], { getElementsAtEventForMode: () => [] });
+    eq("9 hovering nothing changes nothing", label(), "Day (12pm), Oct 26");
+    const ds = temp().config.data.datasets;
+    ok("9 the selected point is larger with a ring, others unchanged", ds[0].pointRadius({ type: "data", datasetIndex: 0, dataIndex: 2 }) === 6 &&
+      ds[0].pointBorderWidth({ type: "data", datasetIndex: 0, dataIndex: 2 }) === 3 && ds[1].pointRadius({ type: "data", datasetIndex: 1, dataIndex: 2 }) === 3 &&
+      ds[0].pointBorderColor({ type: "data", datasetIndex: 0, dataIndex: 2 }) !== ds[0].borderColor);
+    const lines = [], area = { top: 10, bottom: 90 };
+    const plugin = temp().config.plugins.find(p => p.id === "wxPickLine");
+    plugin.beforeDatasetsDraw({ chartArea: area, scales: { x: { getPixelForValue: i => 100 + i } },
+      ctx: { save() {}, restore() {}, setLineDash() {}, beginPath() {}, stroke() {}, moveTo: (x, y) => lines.push(["m", x, y]), lineTo: (x, y) => lines.push(["l", x, y]) } });
+    ok("9 a guide line is drawn at the selected index, top to bottom", JSON.stringify(lines) === '[["m",102,10],["l",102,90]]', JSON.stringify(lines));
+
+    // 10. Table
+    await openHist("#history/5/7d/avg", READ);
+    const picked = () => [...doc.querySelectorAll("#history-table .is-pick")];
+    ok("10 the newest slot is highlighted on load: Oct 27 Day cells", picked().length === 6 && picked().every(c => c.dataset.slot === "day" && c.parentNode.dataset.date === "2026-10-27"));
+    rowCells("2026-10-27", "night")[2].click(); await settle();
+    eq("10 clicking a Night cell selects that date's night picture", label(), "Night (12am), Oct 27");
+    ok("10 and shows the picture", !!vimg() && vimg().src.endsWith("5/2026-10-27/night.jpg"));
+    const sel = rowCells("2026-10-27", "night"), other = rowCells("2026-10-27", "day")[0];
+    ok("10 the selected group is the six Night cells", picked().length === 6 && sel.every(c => c.classList.contains("is-pick")));
+    const cs = e => win.getComputedStyle(e);
+    ok("10 selection is not colour alone: bold plus an inset outline", sel.every(c => parseInt(cs(c).fontWeight, 10) >= 600 && cs(c).boxShadow.includes("inset")) &&
+      parseInt(cs(other).fontWeight, 10) < 600 && cs(other).boxShadow === "none", cs(sel[0]).fontWeight + " " + cs(sel[0]).boxShadow);
+    const dateCell = doc.querySelector('#history-table tbody tr[data-date="2026-10-27"] th');
+    ok("10 the Date cell gets a bold bar", dateCell.classList.contains("is-pick-date") && parseInt(cs(dateCell).fontWeight, 10) >= 700 && cs(dateCell).boxShadow.includes("inset"));
+    ok("10 table cells add no Tab stops", ![...doc.querySelectorAll("#history-table td, #history-table th")].some(e => e.tabIndex >= 0));
+    rowCells("2026-10-26", "day")[0].click(); await settle();
+    eq("10 clicking a Day cell selects it", label(), "Day (12pm), Oct 26");
+    ok("10 the old highlight moves", picked().every(c => c.parentNode.dataset.date === "2026-10-26" && c.dataset.slot === "day"));
+    eq("10 the chart is told (guide line follows)", temp().updates > 0, true);
+
+    // Paging leaves the viewer alone: 40 days of readings in a 12 month period make two table pages.
+    const many = [];
+    for (let i = 0; i < 40; i++) {
+      const d = new Date(Date.UTC(2026, 9, 27 - i)).toISOString().slice(0, 10);
+      many.push(hr("day", d, 15), hr("night", d, 8));
+    }
+    await openHist("#history/5/12m/avg", many, { pics: [] });
+    eq("10 paging: opens on the newest", label(), "Day (12pm), Oct 27");
+    rowCells("2026-10-20", "night")[0].click(); await settle();
+    $("history-older").click(); await settle();
+    ok("10 paging: the table moved to page 2", txt("history-page-info").startsWith("Days 32"), txt("history-page-info"));
+    eq("10 paging: the viewer is unchanged", label(), "Night (12am), Oct 20");
+    eq("10 paging: nothing is highlighted on the other page", picked().length, 0);
+    $("history-newer").click(); await settle();
+    eq("10 paging back re-highlights the selection", picked().length, 6);
+
+    // Period and source
+    await openHist("#history/5/7d/avg", READ);
+    older().click(); await settle();
+    const radio = doc.querySelector('#history-source input[name="history-source"][value="open-meteo"]');
+    radio.checked = true; radio.dispatchEvent(new win.Event("change", { bubbles: true })); await settle();
+    eq("8 changing the source keeps the selection", label(), "Night (12am), Oct 27");
+    win.location.hash = "#history/5/30d/avg"; await settle();
+    eq("8 changing the period selects the newest again", label(), "Day (12pm), Oct 27");
+
+    // Failure and empty
+    await openHist("#history/5/7d/avg", READ, { signReply: { data: null, error: { message: "denied" } } });
+    ok("8 signed URL failure: Picture unavailable, charts and table still show", txt("history-pic-empty") === "Picture unavailable" && !vimg() &&
+      !!temp() && doc.querySelectorAll("#history-table tbody tr").length === 4);
+    await openHist("#history/5/7d/avg", READ, { picReply: { data: null, error: SB_ERR.network } });
+    ok("8 city_pictures failure: Picture unavailable, table still shows", txt("history-pic-empty") === "Picture unavailable" && doc.querySelectorAll("#history-table tbody tr").length === 4);
+    await openHist("#history/5/7d/avg", READ, { signReply: paths => ({ data: paths.map(p => ({ path: p, signedUrl: BROKEN })), error: null }) });
+    older().click(); await settle();
+    ok("8 image error in the viewer: hidden image, Picture unavailable, caption is the credit", !vimg() && txt("history-pic-empty") === "Picture unavailable" &&
+      txt("history-pic-caption") === CREDIT);
+    await openHist("#history/5/7d/avg", [], { pics: [] });
+    ok("8 no readings and no pictures: the card is hidden with the content", $("history-content").hidden && !visible($("history-pic-card")));
+    await openHist("#history/5/7d/avg", [], { pics: [pic("2026-10-26", "night")] });
+    ok("8 pictures alone keep the viewer", !$("history-content").hidden && label() === "Night (12am), Oct 26" && !!vimg());
+
+    // --- Footer, 400px, tokens, scripts (criteria 11 and 12) ---
+    const credit = [...doc.querySelectorAll("footer a")].find(a => a.textContent === "NASA GIBS / EOSDIS");
+    ok("11 footer credit links to NASA GIBS", !!credit && credit.getAttribute("href") === "https://www.earthdata.nasa.gov/gibs" && credit.parentNode.textContent === CREDIT && visible(credit));
+
+    const ids = Array.from({ length: 10 }, (_, i) => 5 + i);
+    sb.replies["latest_pictures.select"] = { data: ids.map(id => pic("2026-10-25", "night", { city_id: id, storage_path: id + "/2026-10-25/night.jpg" })), error: null };
+    await openCards(ids, null, { width: 400, picReply: { data: ids.map(id => pic("2026-10-25", "night", { city_id: id, storage_path: id + "/2026-10-25/night.jpg" })), error: null } });
+    const de = doc.documentElement;
+    const frames = [...doc.querySelectorAll(".city-picture .pic-frame")];
+    ok("11 400px Your cities: ten pictures, no sideways scroll", frames.length === 10 && de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+    ok("11 400px city frames are square and fit the card", frames.every(f => f.offsetWidth > 250 && Math.abs(f.offsetWidth - f.offsetHeight) <= 1 && f.offsetWidth <= f.closest(".city-card").clientWidth),
+      frames.map(f => f.offsetWidth + "x" + f.offsetHeight).join(","));
+    ok("11 ten shown images", doc.querySelectorAll(".city-picture img.pic-img.is-loaded").length === 10);
+    await openHist("#history/5/7d/avg", READ, { width: 400 });
+    const vf = $("history-pic-frame");
+    ok("11 400px History: no sideways scroll", doc.documentElement.scrollWidth <= doc.documentElement.clientWidth, doc.documentElement.scrollWidth + " > " + doc.documentElement.clientWidth);
+    ok("11 400px viewer frame is square and fits the card", vf.offsetWidth > 250 && Math.abs(vf.offsetWidth - vf.offsetHeight) <= 1 && vf.offsetWidth <= $("history-pic-card").clientWidth, vf.offsetWidth + "x" + vf.offsetHeight);
+    ok("11 400px Older, label and Newer share one row inside the card", Math.abs(older().offsetTop - newer().offsetTop) <= 2 && newer().getBoundingClientRect().right <= $("history-pic-card").getBoundingClientRect().right);
+    ok("11 viewer sits under the temperature chart at 400px", $("history-pic-card").offsetTop > $("history-temp-card").offsetTop + $("history-temp-card").offsetHeight - 2);
+    await openHist("#history/5/7d/avg", READ);
+    ok("11 viewer sits beside the chart at 1280px", Math.abs($("history-pic-card").offsetTop - $("history-temp-card").offsetTop) <= 2 && $("history-pic-card").offsetLeft > $("history-temp-card").offsetLeft);
+    ok("11 the canvas has a --focus ring rule", /#history-temp-chart:focus-visible\s*\{[^}]*var\(--focus\)/.test(css));
+
+    // 12. Tokens, scripts, hosts
+    const block = sel => { const i = css.indexOf(sel); const a = css.indexOf("{", i), c = css.indexOf("}", a); return css.slice(a + 1, c); };
+    for (const [name, sel] of [[":root", ":root {"], ["the prefers-color-scheme dark block", ':root:not([data-theme="light"])'], ["the data-theme dark block", ':root[data-theme="dark"]']]) {
+      const b = block(sel);
+      ok("12 --pic-empty, --pick and --pick-bg are in " + name, ["--pic-empty", "--pick", "--pick-bg"].every(t => new RegExp(t + "\\s*:\\s*#[0-9a-f]{6}").test(b)));
+    }
+    ok("12 the new colours use tokens, not literals", !/\.(pic-|history-picture|is-pick)[^{]*\{[^}]*#[0-9a-f]{3,6}/i.test(css.replace(/--[\w-]+\s*:[^;]+;/g, "")));
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1]);
+    eq("12 script tag count unchanged", scripts.length, 8);
+    const hosts = [...new Set([...html.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map(m => m[1]))].sort();
+    eq("12 index.html hosts: only the existing ones plus earthdata.nasa.gov", hosts.join(","),
+      "api.met.no,cdn.jsdelivr.net,fonts.googleapis.com,fonts.gstatic.com,github.com,open-meteo.com,www.earthdata.nasa.gov");
+    const js = (await Promise.all(["common.js", "cities.js", "history.js"].map(f => fetch("../" + f, { cache: "no-store" }).then(r => r.text())))).join("\n");
+    ok("12 no GIBS host in browser code (images come from Storage)", !/gibs\.earthdata/.test(js) && !/gibs\.earthdata/.test(html));
+    ok("12 no service-role key in browser code", !/service_role|SERVICE_ROLE/.test(js));
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite]];
 
   async function run() {
     const saved = {};
