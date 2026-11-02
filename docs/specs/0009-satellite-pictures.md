@@ -209,3 +209,4 @@ Out:
 - Day picture: delayed fetch at the next 12am run, so it shows the real day D about 12 hours late.
 - Picture size: 512×512.
 - Off-centre boxes (poles, ±180°): place the marker from the stored box, or hide it if the box isn't available.
+- Night picture (accepted at build, 2026-11-01): GIBS has no global sub-daily infrared layer, so the night slot uses the NOAA-20 VIIRS I5 night pass (about 1:30am local on date D), stored as `{city_id}/{D}/night.jpg`. Both pictures for D are fetched in the 12am window of D+1. This replaces `{D+1}/night.jpg` in check 3.
