@@ -199,13 +199,14 @@
     <form class="city-search" id="city-search" role="search" novalidate>
       <label for="city-query">Search for a city</label>
       <div class="city-search-row">
-        <span class="search-field"><input id="city-query" type="search" autocomplete="off" maxlength="100"></span>
-        <button type="submit" class="btn" id="city-search-submit">Search</button>
+        <span class="search-field"><input id="city-query" type="search" autocomplete="off" maxlength="100" role="combobox"
+          aria-autocomplete="list" aria-expanded="false" aria-controls="city-results"></span>
+        <ul class="city-results" id="city-results" role="listbox" aria-label="Suggestions" hidden></ul>
       </div>
     </form>
+    <p class="visually-hidden" id="city-results-status" aria-live="polite"></p>
     <p class="msg msg-error" id="cities-limit" hidden>You can follow up to 10 cities. Remove one to add another.</p>
     <p class="msg" id="search-msg" aria-live="polite"></p>
-    <ul class="city-results" id="city-results" aria-label="Search results" hidden></ul>
     <p class="msg" id="cities-msg" aria-live="polite"></p>
     <img class="cities-empty-art" id="cities-empty-art" src="assets/empty-cities.svg" alt="" width="240" height="160" hidden>
     <p class="lede" id="cities-status" aria-live="polite">Loading your cities…</p>

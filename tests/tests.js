@@ -360,7 +360,9 @@
     const settle = () => wait(60);
     const text = id => $(id).textContent;
     const submit = id => $(id).dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
-    const search = async q => { type($("city-query"), q); submit("city-search"); await settle(); };
+    // Autocomplete (spec 0008): emptying first drops the shown query, then the debounced search runs.
+    const search = async q => { type($("city-query"), ""); type($("city-query"), q); await wait(360); };
+    const opt = id => doc.querySelector('#city-results li[data-id="' + id + '"]');
     const row = (id, name, admin1) => ({ city_id: id, added_at: "2026-10-2" + (id % 10) + "T00:00:00Z",
       cities: { id, name, admin1, country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris" } });
     const rd = (city_id, source, slot, t, f) => ({ city_id, source, slot, local_date: "2026-10-24", temperature_c: t, feels_like_c: f,
@@ -382,8 +384,9 @@
     ok("1 geocoding URL has name=Par", mock.calls.some(u => u.startsWith(GEO_URL) && u.includes("name=Par") && u.includes("count=10")), mock.calls.join(" "));
     const items = [...doc.querySelectorAll("#city-results li")];
     eq("1 three results (no-timezone one dropped)", items.length, 3);
-    ok("1 results show name, region, country", items[0] && items[0].textContent.includes(paris) && items[2].textContent.includes("Parma, Emilia-Romagna, Italy"));
-    ok("1 each result has an Add button", items.every(li => li.querySelector("button") && li.querySelector("button").textContent === "Add"));
+    const shows = (li, name, rest) => li && li.querySelector(".city-result-name").textContent === name && li.querySelector(".city-result-region").textContent === rest;
+    ok("1 results show name, region, country", shows(items[0], "Paris", "Île-de-France, France") && shows(items[2], "Parma", "Emilia-Romagna, Italy"));
+    ok("1 each result is an option with no Add button", items.every(li => li.getAttribute("role") === "option" && !li.querySelector("button")));
     mock.fetch[GEO_URL] = GEO.none;
     await search("Par");
     eq("1 no results message", text("search-msg"), 'No places found for "Par".');
@@ -393,7 +396,9 @@
     eq("1 query kept after failure", $("city-query").value, "Par");
     mock.calls = [];
     await search("P");
-    eq("1 short query message", text("search-msg"), "Type at least 2 letters.");
+    eq("1 short query shows no message while typing", text("search-msg"), "");
+    key($("city-query"), "Enter");
+    eq("1 short query message on Enter", text("search-msg"), "Type at least 2 letters.");
     eq("1 short query makes no request", mock.calls.length, 0);
 
     // 1b. Clearing the search (owner-reported bug: results stayed after the box was emptied)
@@ -402,25 +407,25 @@
     await search("Pa");
     type($("city-query"), "");
     ok("1b emptying the box hides the results", shown() === 0 && $("city-results").hidden, shown() + " results");
-    await search("P");
+    await search("P"); key($("city-query"), "Enter");
     type($("city-query"), "");
     eq("1b emptying the box clears the message", text("search-msg"), "");
     await search("Pa");
     $("city-query").focus();
     const escaped = !key($("city-query"), "Escape");
-    ok("1b Escape hides the results", shown() === 0 && $("city-results").hidden, shown() + " results");
+    ok("1b Escape closes the list", $("city-results").hidden && $("city-query").getAttribute("aria-expanded") === "false");
     ok("1b Escape keeps the text and focus", $("city-query").value === "Pa" && doc.activeElement === $("city-query") && escaped);
-    ok("1b Escape with no results is left alone", key($("city-query"), "Escape"));
-    type($("city-query"), "Pa"); submit("city-search"); type($("city-query"), "");
+    ok("1b Escape with the list closed is left alone", key($("city-query"), "Escape"));
+    type($("city-query"), ""); type($("city-query"), "Pa"); key($("city-query"), "Enter"); type($("city-query"), "");
     await settle();
     ok("1b a reply after the box was emptied shows nothing", shown() === 0 && text("search-msg") === "", shown() + " results");
-    ok("1b Search button is ready again", !$("city-search-submit").disabled && text("city-search-submit") === "Search");
+    ok("1b the Search button is gone", !$("city-search-submit"));
 
     // 2. Add
     await open([]);
     eq("2 count starts at 0 of 10", text("cities-count"), "0 of 10 cities");
     await search("Par");
-    btn("Add " + paris).click(); await settle();
+    opt(2988507).click(); await settle();
     const fc = sbCalls("rpc.follow_city");
     eq("2 follow_city called once", fc.length, 1);
     eq("2 follow_city params", JSON.stringify(fc[0] && fc[0].args[0]), JSON.stringify({ p_id: 2988507, p_name: "Paris", p_admin1: "Île-de-France",
@@ -428,26 +433,28 @@
     eq("2 one card added", cards().length, 1);
     ok("2 card has empty-readings text", cards()[0] && cards()[0].textContent.includes("No readings yet. First reading at 12am/12pm local time."));
     eq("2 count is 1 of 10", text("cities-count"), "1 of 10 cities");
-    const added = doc.querySelector('#city-results button[data-id="2988507"]');
-    ok("2 result shows disabled Added", added && added.textContent === "Added" && added.disabled);
     eq("2 Added Paris. announced", text("cities-msg"), "Added Paris.");
+    ok("2 input emptied, list closed, focus kept", $("city-query").value === "" && $("city-results").hidden && doc.activeElement === $("city-query"));
+    await search("Par");
+    const added = opt(2988507);
+    ok("2 result shows disabled Added", added && added.textContent.includes("Added") && added.getAttribute("aria-disabled") === "true");
 
     // 2b. Readings of a newly added city that already has some
     await open([]);
     sb.replies["latest_readings.select"] = chain => ({ data: chain.some(c => c.op === "eq") ? [rd(2988507, "open-meteo", "day", 18.2, 17)] : [], error: null });
     await search("Par");
-    btn("Add " + paris).click(); await settle();
+    opt(2988507).click(); await settle();
     ok("2 new card shows existing readings, not No readings yet", cards()[0] && cards()[0].textContent.includes("18°C") && !cards()[0].textContent.includes("No readings yet"));
 
     // 3. Already followed, and a 23505 error
     await open([row(2988507, "Paris", "Île-de-France")]);
     await search("Par");
-    const have = doc.querySelector('#city-results button[data-id="2988507"]');
-    ok("3 followed result shows disabled Added", have && have.textContent === "Added" && have.disabled);
+    const have = opt(2988507);
+    ok("3 followed result shows disabled Added", have && have.textContent.includes("Added") && have.getAttribute("aria-disabled") === "true");
     await open([]);
     sb.replies["rpc.follow_city"] = { data: null, error: SB_ERR.duplicate };
     await search("Par");
-    btn("Add " + paris).click(); await settle();
+    opt(2988507).click(); await settle();
     eq("3 duplicate message", text("cities-msg"), "Paris is already in your list.");
     eq("3 no card added", cards().length, 0);
 
@@ -455,12 +462,12 @@
     const ten = Array.from({ length: 10 }, (_, i) => row(100 + i, "City" + i, "Region"));
     await open(ten);
     await search("Par");
-    ok("4 all Add buttons disabled at 10", [...doc.querySelectorAll("#city-results button")].every(b => b.disabled));
+    ok("4 all results disabled at 10", [...doc.querySelectorAll("#city-results li")].every(li => li.getAttribute("aria-disabled") === "true"));
     ok("4 limit message shown", !$("cities-limit").hidden && text("cities-limit") === "You can follow up to 10 cities. Remove one to add another.");
     await open([]);
     sb.replies["rpc.follow_city"] = { data: null, error: SB_ERR.cityLimit };
     await search("Par");
-    btn("Add " + paris).click(); await settle();
+    opt(2988507).click(); await settle();
     eq("4 city_limit error shows limit message", text("cities-msg"), "You can follow up to 10 cities. Remove one to add another.");
     eq("4 no card added", cards().length, 0);
 
@@ -510,12 +517,12 @@
       doc.documentElement.scrollWidth + " > " + doc.documentElement.clientWidth);
     ok("7 search input has a label", $("city-query").labels && $("city-query").labels.length === 1 && $("city-query").labels[0].textContent === "Search for a city");
     ok("7 every Remove name includes its place", cards().every(li => /^Remove A very long city name number \d, Some Long Region Name, France$/.test(li.querySelector("[data-remove]").getAttribute("aria-label"))));
-    ok("7 every Add name includes its place", [...doc.querySelectorAll("#city-results button")].every(b => /^(Add|Added) Springfield\d, Some Long Region Name, Some Country/.test(b.getAttribute("aria-label"))));
+    ok("7 every result name includes its place", [...doc.querySelectorAll("#city-results li")].every(li => /^Springfield\d, Some Long Region Name, Some Country/.test(li.getAttribute("aria-label"))));
     const form = $("city-search");
-    ok("7 input sits in a form with a submit button (Enter submits)", form.contains($("city-query")) && form.querySelector('button[type="submit"]'));
+    ok("7 input sits in the search form", form.contains($("city-query")));
     mock.calls = [];
-    form.requestSubmit(); await settle();
-    ok("7 submitting the form searches", mock.calls.some(u => u.includes("name=Spring")));
+    type($("city-query"), "Springf"); form.requestSubmit(); await settle();
+    ok("7 submitting the form runs the pending search at once", mock.calls.some(u => u.includes("name=Springf")));
   }
 
   // History regressions (spec 0003 review findings)
@@ -1165,11 +1172,11 @@
     await open(many, lots, 400);
     mock.fetch[GEO_URL] = { results: Array.from({ length: 10 }, (_, i) => ({ id: 900 + i, name: "Springfield" + i, latitude: 1, longitude: 2,
       admin1: "Some Long Region Name", country: "Some Country With A Long Name", timezone: "UTC" })) };
-    type($("city-query"), "Spring"); $("city-search").dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true })); await settle();
+    type($("city-query"), "Spring"); await wait(360);
     const de = doc.documentElement;
     eq("10 ten results", doc.querySelectorAll("#city-results li").length, 10);
     ok("10 cities page: no sideways scroll at 400px", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
-    ok("10 result rows keep their Add pill inside the row", [...doc.querySelectorAll("#city-results li")].every(li => li.getBoundingClientRect().right <= de.clientWidth && li.querySelector("button").getBoundingClientRect().right <= de.clientWidth));
+    ok("10 result rows stay inside the viewport and are at least 44px tall", [...doc.querySelectorAll("#city-results li")].every(li => li.getBoundingClientRect().right <= de.clientWidth && li.getBoundingClientRect().height >= 44));
     ok("10 large temps and captions fit the card", [...doc.querySelectorAll(".city-temp, .city-caption")].every(e => e.scrollWidth <= e.clientWidth + 1));
     const rules = [{ id: 1, city_id: 1, metric: "temperature", condition: "outside", slot: "both", min_value: 0, max_value: 30, created_at: "2026-10-21T00:00:00Z" },
       { id: 2, city_id: 1, metric: "humidity", condition: "above", slot: "day", min_value: null, max_value: 80, created_at: "2026-10-22T00:00:00Z" }];
