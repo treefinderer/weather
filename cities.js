@@ -381,12 +381,18 @@
     renderAll();
     // Pictures are optional: their query runs alongside, and its failure never blocks the list.
     const pics = request(() => sb.from("latest_pictures").select(PICTURE_COLS));
-    const [uc, lr] = await Promise.all([
-      request(() => sb.from("user_cities").select("city_id, added_at, cities(id, name, admin1, country, lat, lon, timezone, " + WEBCAM_COLS.join(", ") + ")")
-        .eq("user_id", uid).order("added_at", { ascending: true })),
+    const userCities = cols => request(() => sb.from("user_cities").select("city_id, added_at, cities(id, name, admin1, country, lat, lon, timezone" + cols + ")")
+      .eq("user_id", uid).order("added_at", { ascending: true }));
+    let [uc, lr] = await Promise.all([
+      userCities(", " + WEBCAM_COLS.join(", ")),
       request(() => sb.from("latest_readings").select(READING_COLS))
     ]);
     if (g !== gen) return;
+    // Webcams are optional too: before their migration the columns don't exist, so retry once without them.
+    if (uc.error) {
+      uc = await userCities("");
+      if (g !== gen) return;
+    }
     if (uc.error || lr.error) {
       state = "error";
       renderAll();

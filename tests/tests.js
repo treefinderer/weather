@@ -2032,9 +2032,60 @@
     ok("1 the Edge Function files exist", await Promise.all(["index.ts", "logic.ts", "logic_test.ts"].map(f => fetch("../supabase/functions/webcams/" + f, { cache: "no-store" }).then(r => r.ok))).then(a => a.every(Boolean)));
   }
 
+  // Load before migrations: the live database may not have 0004 (pictures) or 0005 (webcams) yet. The list and History
+  // must still load, with no webcam block and "Picture unavailable" where pictures would be.
+  async function beforeMigrations() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const NO_COL = { message: "column cities_1.webcam_id does not exist", code: "42703", details: null, hint: null };
+    const NO_TABLE = { message: 'relation "public.city_pictures" does not exist', code: "42P01", details: null, hint: null };
+    const city = { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris" };
+    const rd = { city_id: 5, source: "open-meteo", slot: "day", local_date: "2026-10-25", temperature_c: 12, feels_like_c: 10,
+      humidity_pct: 60, wind_speed_ms: 5, precipitation_mm: 0.4 };
+    const ucSelects = () => sbCalls("user_cities.select").map(c => ops(c.args[0], "select")[0][0]);
+    const open = async o => {
+      o = o || {};
+      clock.now = Date.UTC(2026, 9, 27, 12);
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      // Without migration 0005, PostgREST rejects any select naming a webcam_ column.
+      sb.replies["user_cities.select"] = chain => /webcam_/.test(ops(chain, "select")[0][0]) ? { data: null, error: NO_COL }
+        : { data: [{ city_id: 5, added_at: "2026-10-01T00:00:00Z", cities: Object.assign({}, city, o.webcam ? { webcam_status: "found" } : {}) }], error: null };
+      sb.replies["latest_readings.select"] = o.readingsError ? { data: null, error: SB_ERR.network } : { data: [rd], error: null };
+      sb.replies["latest_pictures.select"] = { data: null, error: Object.assign({}, NO_TABLE, { message: 'relation "public.latest_pictures" does not exist' }) };
+      sb.replies["city_pictures.select"] = { data: null, error: NO_TABLE };
+      sb.replies["cities.select"] = { data: city, error: null };
+      sb.replies["readings.select"] = pages([Object.assign({}, rd, { local_date: "2026-10-26" })]);
+      mock.errors.length = 0;
+      sb.calls = [];
+      await loadPage(1280);
+      await wait(100);
+    };
+    const card = () => doc.querySelector("#city-list > li");
+
+    await open();
+    ok("the list renders the city without webcam columns", !!card() && card().textContent.includes("Paris"));
+    ok("no loadFailed message", !$("cities-status").textContent.includes("Can't load your cities"), $("cities-status").textContent);
+    ok("no webcam block", !doc.querySelector(".webcam"));
+    ok("retried once without webcam columns", ucSelects().length === 2 && /webcam_/.test(ucSelects()[0]) && !/webcam_/.test(ucSelects()[1]), ucSelects().join(" | "));
+    ok("a latest_pictures error still shows Picture unavailable on the card", card().textContent.includes("Picture unavailable"));
+    eq("no console error", mock.errors.join("|"), "");
+
+    // Only the webcam select falls back: a failing retry or latest_readings error still shows loadFailed.
+    await open({ readingsError: true });
+    ok("a latest_readings error still shows loadFailed", $("cities-status").textContent.includes("Can't load your cities") && !card());
+    sb.replies["user_cities.select"] = { data: null, error: NO_COL };
+    $("cities-retry").click(); await wait(100);
+    ok("a failing retry shows loadFailed", $("cities-status").textContent.includes("Can't load your cities") && !card());
+
+    // History with no city_pictures table
+    await open();
+    win.location.hash = "#history/5/30d/avg"; await wait(150);
+    ok("History renders its table when city_pictures errors", !$("screen-history").hidden && doc.querySelectorAll("#history-table tbody tr").length > 0 && $("history-error").hidden);
+    eq("History logs no console error", mock.errors.join("|"), "");
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam], ["Load before migrations", beforeMigrations]];
 
   async function run() {
     const saved = {};
