@@ -1,6 +1,7 @@
 // Your cities: search (Open-Meteo geocoding), follow up to 10 cities, remove them, and show each city's
-// latest day and night reading per source in the user's unit (spec 0002), and its newest satellite picture (spec 0009).
-// Uses Wx.supabase, Wx.user, Wx.unit, Wx.fmt and Wx.pic.
+// latest day and night reading per source in the user's unit (spec 0002), its newest satellite picture (spec 0009)
+// and its Live view webcam block (spec 0010, built by webcam.js).
+// Uses Wx.supabase, Wx.user, Wx.unit, Wx.fmt, Wx.pic and Wx.webcam.
 (function () {
   "use strict";
   const Wx = window.Wx;
@@ -35,7 +36,7 @@
   let userId = null;
   let gen = 0;               // bumped on every reset, so replies for an earlier user are dropped
   let state = "idle";        // "loading" | "error" | "ready"
-  let cities = [];           // followed cities in added_at order: { id, name, admin1, country, lat, lon, timezone }
+  let cities = [];           // followed cities in added_at order: { id, name, admin1, country, lat, lon, timezone, webcam_* }
   let readings = {};         // city id -> latest_readings rows
   let pictures = {};         // city id -> its latest_pictures row
   let picStatus = {};        // city id -> "loading" | "failed" | "ready"
@@ -299,7 +300,7 @@
     if (!rows.length) {
       li.appendChild(el("p", "lede", MSG.noReadings));
       li.appendChild(mediaFor(c));
-      return li;
+      return withWebcam(li, c);
     }
     const sum = summary(rows);
     if (sum) li.appendChild(sum);
@@ -316,16 +317,25 @@
       slots.appendChild(group);
     });
     li.appendChild(slots);
+    return withWebcam(li, c);
+  }
+  // The Live view block (spec 0010) goes last on the card, rendered with it from the same cities query.
+  function withWebcam(li, c) {
+    const cam = Wx.webcam ? Wx.webcam.block(c) : null;
+    if (cam) li.appendChild(cam);
     return li;
   }
-  // Rebuilds the cards, keeping focus on the same card's Remove button when it had it.
+  // Rebuilds the cards, keeping focus on the same card's Remove button when it had it. Webcam blocks are reused
+  // across rebuilds, so a focused control inside one gets its focus back.
   function renderCards() {
     const active = document.activeElement;
     const focusId = active && active.dataset && active.dataset.remove;
+    const inWebcam = active && active.closest && active.closest(".webcam") ? active : null;
     const list = $("city-list");
     list.textContent = "";
     if (state === "ready") cities.forEach(c => list.appendChild(card(c)));
     if (focusId) focusRemove(Number(focusId));
+    else if (inWebcam && inWebcam.isConnected) inWebcam.focus();
   }
   function focusRemove(id) {
     const btn = $("city-list").querySelector('button[data-remove="' + id + '"]');
@@ -341,6 +351,7 @@
   // --- Loading ---
   const READING_COLS = "city_id, source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm, weather_code";
   const PICTURE_COLS = "city_id, local_date, slot, layer, bbox, storage_path";
+  const WEBCAM_COLS = ["webcam_id", "webcam_title", "webcam_page_url", "webcam_player_url", "webcam_status"];
 
   function reset(user) {
     gen++;
@@ -352,6 +363,7 @@
     picStatus = {};
     picUrls = {};
     media.clear();
+    if (Wx.webcam) Wx.webcam.clear();
     results = [];
     adding.clear();
     removing.clear();
@@ -370,7 +382,7 @@
     // Pictures are optional: their query runs alongside, and its failure never blocks the list.
     const pics = request(() => sb.from("latest_pictures").select(PICTURE_COLS));
     const [uc, lr] = await Promise.all([
-      request(() => sb.from("user_cities").select("city_id, added_at, cities(id, name, admin1, country, lat, lon, timezone)")
+      request(() => sb.from("user_cities").select("city_id, added_at, cities(id, name, admin1, country, lat, lon, timezone, " + WEBCAM_COLS.join(", ") + ")")
         .eq("user_id", uid).order("added_at", { ascending: true })),
       request(() => sb.from("latest_readings").select(READING_COLS))
     ]);
@@ -380,10 +392,14 @@
       renderAll();
       return;
     }
-    cities = (uc.data || []).filter(row => row && row.cities).map(row => ({
-      id: Number(row.cities.id), name: row.cities.name, admin1: row.cities.admin1 || "", country: row.cities.country || "",
-      lat: row.cities.lat, lon: row.cities.lon, timezone: row.cities.timezone
-    }));
+    cities = (uc.data || []).filter(row => row && row.cities).map(row => {
+      const c = {
+        id: Number(row.cities.id), name: row.cities.name, admin1: row.cities.admin1 || "", country: row.cities.country || "",
+        lat: row.cities.lat, lon: row.cities.lon, timezone: row.cities.timezone
+      };
+      WEBCAM_COLS.forEach(k => { c[k] = row.cities[k] == null ? null : row.cities[k]; });
+      return c;
+    });
     readings = {};
     (lr.data || []).forEach(r => { (readings[r.city_id] = readings[r.city_id] || []).push(r); });
     cities.forEach(c => { picStatus[c.id] = "loading"; });
@@ -606,6 +622,7 @@
     const i = cities.findIndex(x => x.id === c.id);
     if (i >= 0) cities.splice(i, 1);
     media.delete(c.id);
+    if (Wx.webcam) Wx.webcam.forget(c.id);
     delete pictures[c.id];
     delete picStatus[c.id];
     renderAll();

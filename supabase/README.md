@@ -363,3 +363,101 @@ Edge Functions → collect → Code (or Edit). Replace `index.ts` with the new `
 Every picture is kept (owner decision, 2026-11-01). One picture is about 15 to 80 KB, two a day per city, so roughly
 40 MB per city per year; a city followed by several users counts once. Revisit when Storage → Usage passes about 70%
 of the plan.
+
+## Spec 0010: live webcam (owner checklist)
+
+**Before you start:** the 0002 migration must be applied, and the Vault entries `project_url` and `collect_secret`
+and the Edge Function secret `COLLECT_SECRET` must exist (0002 steps 2 to 4). The `webcams` function reuses them, so
+no new Vault entry is needed. It needs one new Edge Function secret: the Windy key.
+
+Do these once, after the 0010 branch is merged, in the Supabase dashboard. Replace `<project-ref>` as in the 0002
+steps.
+
+### 1. Create the Windy Webcams API key
+
+Sign in at https://api.windy.com/keys and create a key for the **Webcams API** (the free tier is enough). Leave the
+page open: you paste the key in step 2, and nowhere else. Don't paste it in chat, an issue, a commit or any file in
+the repo. A new key can take a few minutes before Windy accepts it.
+
+### 2. Edge Function secret
+
+Edge Functions → Secrets (on some dashboards: Project Settings → Edge Functions → Secrets). Add:
+
+- Name: `WINDY_API_KEY`
+- Value: the key from step 1
+
+Save. (CLI alternative, typed by you in Terminal: `npx supabase secrets set WINDY_API_KEY=... --project-ref <project-ref>`,
+starting the line with a space so it stays out of your shell history, as in 0002 step 7.2.)
+
+### 3. Run the migration
+
+SQL Editor → New query. Paste the whole contents of `supabase/migrations/0005_city_webcams.sql` and click Run.
+It adds the `webcam_*` columns to `cities` (no new table, no image column), keeps RLS on and users without write
+access to `cities`, and schedules the hourly `webcams` cron job (its own marked section at the end of the file).
+It succeeds even if the function isn't deployed yet: cron calls just fail until step 4 is done.
+
+### 4. Deploy the webcams function
+
+**Dashboard:** Edge Functions → Deploy a new function → Via Editor.
+
+1. Name it `webcams` (exactly, because the cron job calls `/functions/v1/webcams`).
+2. Replace the sample `index.ts` with the contents of `supabase/functions/webcams/index.ts`.
+3. Add a file named `logic.ts` with the contents of `supabase/functions/webcams/logic.ts`. Leave out `logic_test.ts`
+   and `fixtures/`.
+4. Click Deploy function.
+5. Open the function → Details. Turn **off** "Enforce JWT verification" and save. The function checks
+   `x-collect-secret` itself.
+
+**CLI alternative:** `npx supabase functions deploy webcams --no-verify-jwt --project-ref <project-ref> --use-api`
+
+### 5. Check the cron schedule
+
+Integrations → Cron (or Database → Cron Jobs) lists `webcams` with schedule `35 * * * *` (minute 35 of every UTC
+hour; `collect` runs at minute 5 and `notify` at 20). In SQL:
+
+```sql
+select jobname, schedule, active from cron.job where jobname in ('collect', 'notify', 'webcams');
+```
+
+### 6. Check it works
+
+1. **Rejects without the secret** (should print `HTTP/2 401`):
+   ```sh
+   curl -s -o /dev/null -w 'HTTP/2 %{http_code}\n' -X POST https://<project-ref>.supabase.co/functions/v1/webcams
+   ```
+2. **Runs with the secret** (read it from a hidden prompt, as in 0002 step 7.2):
+   ```sh
+   read -s COLLECT_SECRET
+   curl -s -X POST -H "x-collect-secret: $COLLECT_SECRET" https://<project-ref>.supabase.co/functions/v1/webcams
+   unset COLLECT_SECRET
+   ```
+   It prints something like `{"due":3,"found":2,"none":1,"failed":[]}`. A second run right after prints `"due":0`:
+   each city is looked up once, then again after 7 days, or sooner after a failure (retry after 1 hour, growing to
+   24 hours). `{"error":"WINDY_API_KEY is not set"}` with HTTP 500 means step 2 is missing; nothing was written.
+   A failure such as `"HTTP 401"` in `failed` usually means the key is wrong or not active yet.
+3. **Stored cameras:**
+   ```sql
+   select name, webcam_status, webcam_id, webcam_title, webcam_player_url, webcam_checked_at, webcam_next_try_at, webcam_failures
+   from cities order by webcam_checked_at desc nulls last;
+   ```
+4. **The app.** Sign in: a city with a camera shows "Live view" at the bottom of its card, with the camera name and
+   the Windy credit; a city without one shows "No webcam nearby".
+5. **Does the player URL expire?** (Spec 0010 asks for this check with a real key.) Note one city's
+   `webcam_player_url` from step 3, and open it in a browser right away, then again the next day. Windy documents
+   that *image* URLs expire after about 10 minutes on the free tier; the player URLs in its documentation carry no
+   token. If the player still loads the next day, nothing more is needed. If it shows an error or a 401, tell the
+   orchestrator: the spec says to stop there rather than build a per-view proxy.
+
+### Webcam unit tests (run by hand)
+
+They need [Deno](https://deno.com) (`brew install deno`) and aren't part of `tests/run.sh`. No test calls the real
+Windy API:
+
+```sh
+deno test --allow-read supabase/functions/webcams/logic_test.ts
+```
+
+### Request budget
+
+About one Windy request per followed city per week, plus retries after failures (at most one per city per hour,
+backing off to one a day). Each run looks up at most 10 cities.

@@ -1,0 +1,128 @@
+{
+  "total": 4,
+  "webcams": [
+    {
+      "webcamId": 1000000001,
+      "title": "Zürich: Old Town (offline)",
+      "status": "inactive",
+      "viewCount": 900000,
+      "lastUpdatedOn": "2026-11-01T11:00:00.000Z",
+      "location": {
+        "latitude": 47.372,
+        "longitude": 8.543,
+        "city": "Zürich",
+        "city_code": "CH.ZH.261",
+        "region": "Canton of Zurich",
+        "region_code": "CH.ZH",
+        "country": "Switzerland",
+        "country_code": "CH",
+        "continent": "Europe",
+        "continent_code": "EU"
+      },
+      "player": {
+        "live": "https://webcams.windy.com/webcams/public//player?webcamId=1000000001&playerType=live",
+        "day": "https://webcams.windy.com/webcams/public//player?webcamId=1000000001&playerType=day",
+        "month": "https://webcams.windy.com/webcams/public//player?webcamId=1000000001&playerType=month",
+        "year": "https://webcams.windy.com/webcams/public//player?webcamId=1000000001&playerType=year",
+        "lifetime": "https://webcams.windy.com/webcams/public//player?webcamId=1000000001&playerType=lifetime"
+      },
+      "urls": {
+        "detail": "https://webcams.windy.com/webcams/1000000001",
+        "edit": "https://webcams-admin.windy.com/webcams/1000000001",
+        "provider": "https://example.com/cams"
+      }
+    },
+    {
+      "webcamId": 1000000002,
+      "title": "Zürich: Uetliberg",
+      "status": "active",
+      "viewCount": 500000,
+      "lastUpdatedOn": "2026-10-30T10:00:00.000Z",
+      "location": {
+        "latitude": 47.3497,
+        "longitude": 8.492,
+        "city": "Zürich",
+        "city_code": "CH.ZH.261",
+        "region": "Canton of Zurich",
+        "region_code": "CH.ZH",
+        "country": "Switzerland",
+        "country_code": "CH",
+        "continent": "Europe",
+        "continent_code": "EU"
+      },
+      "player": {
+        "live": "https://webcams.windy.com/webcams/public//player?webcamId=1000000002&playerType=live",
+        "day": "https://webcams.windy.com/webcams/public//player?webcamId=1000000002&playerType=day",
+        "month": "https://webcams.windy.com/webcams/public//player?webcamId=1000000002&playerType=month",
+        "year": "https://webcams.windy.com/webcams/public//player?webcamId=1000000002&playerType=year",
+        "lifetime": "https://webcams.windy.com/webcams/public//player?webcamId=1000000002&playerType=lifetime"
+      },
+      "urls": {
+        "detail": "https://webcams.windy.com/webcams/1000000002",
+        "edit": "https://webcams-admin.windy.com/webcams/1000000002",
+        "provider": "https://example.com/cams"
+      }
+    },
+    {
+      "webcamId": 1000000003,
+      "title": "Zürich: Lake",
+      "status": "active",
+      "viewCount": 120000,
+      "lastUpdatedOn": "2026-10-30T20:00:00.000Z",
+      "location": {
+        "latitude": 47.36,
+        "longitude": 8.545,
+        "city": "Zürich",
+        "city_code": "CH.ZH.261",
+        "region": "Canton of Zurich",
+        "region_code": "CH.ZH",
+        "country": "Switzerland",
+        "country_code": "CH",
+        "continent": "Europe",
+        "continent_code": "EU"
+      },
+      "player": {
+        "live": "https://webcams.windy.com/webcams/public//player?webcamId=1000000003&playerType=live",
+        "day": "https://webcams.windy.com/webcams/public//player?webcamId=1000000003&playerType=day",
+        "month": "https://webcams.windy.com/webcams/public//player?webcamId=1000000003&playerType=month",
+        "year": "https://webcams.windy.com/webcams/public//player?webcamId=1000000003&playerType=year",
+        "lifetime": "https://webcams.windy.com/webcams/public//player?webcamId=1000000003&playerType=lifetime"
+      },
+      "urls": {
+        "detail": "https://webcams.windy.com/webcams/1000000003",
+        "edit": "https://webcams-admin.windy.com/webcams/1000000003",
+        "provider": "https://example.com/cams"
+      }
+    },
+    {
+      "webcamId": 1000000004,
+      "title": "Kloten: Airport",
+      "status": "active",
+      "viewCount": 80000,
+      "lastUpdatedOn": "2026-11-01T11:30:00.000Z",
+      "location": {
+        "latitude": 47.4581,
+        "longitude": 8.555,
+        "city": "Zürich",
+        "city_code": "CH.ZH.261",
+        "region": "Canton of Zurich",
+        "region_code": "CH.ZH",
+        "country": "Switzerland",
+        "country_code": "CH",
+        "continent": "Europe",
+        "continent_code": "EU"
+      },
+      "player": {
+        "day": "https://webcams.windy.com/webcams/public//player?webcamId=1000000004&playerType=day",
+        "month": "https://webcams.windy.com/webcams/public//player?webcamId=1000000004&playerType=month",
+        "year": "https://webcams.windy.com/webcams/public//player?webcamId=1000000004&playerType=year",
+        "lifetime": "https://webcams.windy.com/webcams/public//player?webcamId=1000000004&playerType=lifetime"
+      },
+      "urls": {
+        "detail": "https://webcams.windy.com/webcams/1000000004",
+        "edit": "https://webcams-admin.windy.com/webcams/1000000004",
+        "provider": "https://example.com/cams"
+      }
+    }
+  ]
+}
