@@ -1883,9 +1883,158 @@
     ok("12 no service-role key in browser code", !/service_role|SERVICE_ROLE/.test(js));
   }
 
+  // Live webcam (spec 0010). Criteria 1 to 6 are Deno/SQL (logic_test.ts, run by the owner); here: 7 to 12 through the DOM,
+  // plus static checks on the migration and the frontend files. The player host is unresolvable, so the suite stays offline.
+  async function webcam() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const settle = () => wait(60);
+    const PLAYER = "https://webcams.windy.invalid/embed/player/1234/day";
+    const PAGE = "https://webcams.windy.invalid/webcams/1234";
+    const cam = (id, o) => Object.assign({ id, name: "Paris" + id, admin1: "Île-de-France", country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris",
+      webcam_id: 1234, webcam_title: "Paris – Eiffel Tower", webcam_page_url: PAGE, webcam_player_url: PLAYER, webcam_status: "found" }, o || {});
+    const rowOf = c => ({ city_id: c.id, added_at: "2026-10-2" + (c.id % 10) + "T00:00:00Z", cities: c });
+    const rd = id => ({ city_id: id, source: "open-meteo", slot: "day", local_date: "2026-10-24", temperature_c: 12, feels_like_c: 11,
+      humidity_pct: 60, wind_speed_ms: 5, precipitation_mm: 0.4 });
+    const openCards = async (list, width) => {
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["user_cities.select"] = { data: list.map(rowOf), error: null };
+      sb.replies["latest_readings.select"] = { data: list.map(c => rd(c.id)), error: null };
+      mock.errors.length = 0;
+      await loadPage(width || 1280);
+    };
+    const card = i => doc.querySelectorAll("#city-list > li")[i || 0];
+    const box = i => card(i).querySelector(".webcam");
+    const toggle = i => box(i).querySelector("button");
+    const frames = () => doc.querySelectorAll(".webcam iframe");
+    const CREDIT = "Webcams provided by windy.com - add new webcam";
+
+    // 8. Card with a camera
+    await openCards([cam(5)]);
+    const b = toggle();
+    ok("8 Live view button with aria-expanded=false and aria-controls", !!b && b.textContent === "Live view" && b.getAttribute("aria-expanded") === "false" &&
+      !!b.getAttribute("aria-controls") && !!doc.getElementById(b.getAttribute("aria-controls")));
+    ok("8 the block is the last child of the card, after the tiles", card().lastElementChild === box() && !!card().querySelector(".slots + .webcam"));
+    ok("8 button name includes the camera", (b.getAttribute("aria-label") || "").includes("Paris – Eiffel Tower"), b.getAttribute("aria-label"));
+    const links = [...box().querySelectorAll("a")];
+    const camLink = links[0];
+    ok("8 camera name links to its page in a new tab, noopener noreferrer", camLink.textContent === "Paris – Eiffel Tower" && camLink.getAttribute("href") === PAGE &&
+      camLink.target === "_blank" && camLink.rel === "noopener noreferrer");
+    const credit = box().querySelector(".webcam-credit");
+    eq("8 exact credit text", credit.textContent, CREDIT);
+    const cl = [...credit.querySelectorAll("a")];
+    ok("8 credit links go to windy.com and windy.com/webcams/add", cl.length === 2 && cl[0].textContent === "windy.com" && cl[0].getAttribute("href") === "https://www.windy.com/" &&
+      cl[1].textContent === "add new webcam" && cl[1].getAttribute("href") === "https://www.windy.com/webcams/add" && cl.every(a => a.target === "_blank" && a.rel === "noopener noreferrer"));
+    eq("8 no iframe yet", frames().length, 0);
+    ok("8 nothing requested from windy before opening", !mock.calls.some(u => /windy/.test(u)));
+    const cs = e => win.getComputedStyle(e);
+    eq("8 credit is 17px", cs(credit).fontSize, "17px");
+    eq("8 credit colour is the --text token", cs(credit).color, (() => { const p = doc.createElement("p"); p.style.color = "var(--text)"; doc.body.appendChild(p); const c = cs(p).color; p.remove(); return c; })());
+
+    // 9. Opening and closing
+    b.focus(); b.click(); await settle();
+    eq("9 click inserts one iframe", frames().length, 1);
+    const fr = frames()[0];
+    ok("9 iframe has the stored src, a title naming the camera and loading=lazy", fr.getAttribute("src") === PLAYER && fr.title === "Live webcam: Paris – Eiffel Tower" && fr.getAttribute("loading") === "lazy",
+      fr.getAttribute("src") + " | " + fr.title + " | " + fr.getAttribute("loading"));
+    ok("9 button reads Hide live view with aria-expanded=true", toggle().textContent === "Hide live view" && toggle().getAttribute("aria-expanded") === "true");
+    ok("9 the toggle is a native type=button (Enter and Space activate it)", toggle().tagName === "BUTTON" && toggle().type === "button");
+    toggle().click(); await settle();
+    ok("9 pressing again removes the iframe and resets the button", frames().length === 0 && toggle().textContent === "Live view" && toggle().getAttribute("aria-expanded") === "false");
+    eq("9 focus stays on the button", doc.activeElement, toggle());
+    toggle().click(); await settle();
+    eq("9 reopening inserts exactly one iframe", frames().length, 1);
+
+    // Known issue check (reviewer's finding): does an open player survive a re-render?
+    const before = frames()[0];
+    $("settings-open").click();
+    const f = doc.querySelector('input[name="unit"][value="F"]');
+    f.checked = true; f.dispatchEvent(new win.Event("change", { bubbles: true })); await settle();
+    ok("known issue: an open player keeps the same iframe across a C/F re-render", frames().length === 1 && frames()[0] === before, "iframe was replaced");
+
+    // 10. Other statuses
+    await openCards([cam(5, { webcam_id: null, webcam_title: null, webcam_page_url: null, webcam_player_url: null, webcam_status: "none" })]);
+    ok("10 status none: No webcam nearby, no button, link or credit", box() && box().textContent === "No webcam nearby" && !box().querySelector("button, a, iframe") && !card().textContent.includes("Webcams provided"));
+    ok("10 status none is muted text", cs(box().querySelector(".webcam-none")).color === (() => { const p = doc.createElement("p"); p.style.color = "var(--muted)"; doc.body.appendChild(p); const c = cs(p).color; p.remove(); return c; })());
+    eq("10 status none logs no console error", mock.errors.join("|"), "");
+    await openCards([cam(5, { webcam_id: null, webcam_title: null, webcam_page_url: null, webcam_player_url: null, webcam_status: null })]);
+    ok("10 status null: nothing webcam-related", !box() && !card().querySelector("iframe") && !card().textContent.includes("webcam") && !card().textContent.includes("Live view"));
+    eq("10 status null logs no console error", mock.errors.join("|"), "");
+    const noFields = cam(5); delete noFields.webcam_status; delete noFields.webcam_player_url;
+    await openCards([noFields]);
+    ok("10 a row without webcam fields shows nothing", !box());
+
+    // Non-https URLs are never used as src or href
+    await openCards([cam(5, { webcam_player_url: "javascript:alert(1)" })]);
+    ok("a non-https player URL: no webcam block at all", !box());
+    await openCards([cam(5, { webcam_page_url: "http://webcams.windy.invalid/p" })]);
+    ok("a non-https page URL: no block, no http href", !box() && ![...doc.querySelectorAll("#city-list a")].some(a => /^(http:|javascript:)/i.test(a.getAttribute("href") || "")));
+    await openCards([cam(5, { webcam_player_url: "data:text/html,x" })]);
+    ok("a data: player URL is not used", !box() && frames().length === 0);
+
+    // 12. Tab order: button, camera link, credit links (and the iframe between button and links when open)
+    await openCards([cam(5)]);
+    const tabbables = () => [...box().querySelectorAll("button, a[href], iframe")].filter(e => e.tabIndex >= 0);
+    eq("12 Tab order closed: button, camera link, windy.com, add new webcam", tabbables().map(e => e.tagName === "BUTTON" ? "button" : e.textContent).join(" > "),
+      "button > Paris – Eiffel Tower > windy.com > add new webcam");
+    toggle().click(); await settle();
+    eq("12 Tab order open: button, iframe, camera link, credit links", tabbables().map(e => e.tagName === "BUTTON" ? "button" : e.tagName === "IFRAME" ? "iframe" : e.textContent).join(" > "),
+      "button > iframe > Paris – Eiffel Tower > windy.com > add new webcam");
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+    ok("12 the focus ring applies to buttons and links (global --focus rule)", /:focus-visible[^{]*\{[^}]*var\(--focus\)/.test(css) && /\.webcam-frame:focus-within\s*\{[^}]*var\(--focus\)/.test(css));
+
+    // 11. 400px, ten cities, one player open
+    const ten = Array.from({ length: 10 }, (_, i) => cam(5 + i, { webcam_title: "A very long camera name that has to wrap on a phone screen without any overflow " + i }));
+    await openCards(ten, 400);
+    const de = doc.documentElement;
+    const heights = () => [...doc.querySelectorAll("#city-list > li")].map(li => li.offsetHeight);
+    const h0 = heights();
+    await wait(300);
+    eq("11 ten cards with a block each", doc.querySelectorAll(".webcam").length, 10);
+    ok("11 card heights don't change after the first render", heights().join() === h0.join(), h0.join() + " vs " + heights().join());
+    ok("11 no sideways scroll with all players closed", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+    toggle(3).click(); await settle();
+    const fb = box(3).querySelector(".webcam-frame");
+    ok("11 open player: no sideways scroll", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+    ok("11 open player box is 16:9", Math.abs(fb.offsetWidth / fb.offsetHeight - 16 / 9) < 0.03, fb.offsetWidth + "x" + fb.offsetHeight);
+    const inner = box(3).getBoundingClientRect();
+    ok("11 open player fills the block's width", Math.abs(fb.getBoundingClientRect().width - inner.width) <= 2, fb.getBoundingClientRect().width + " vs " + inner.width);
+    ok("11 only the opened card grew", heights().every((h, i) => i === 3 ? h > h0[i] : h === h0[i]), h0.join() + " vs " + heights().join());
+    ok("11 card, camera name and credit stay inside the card", [...doc.querySelectorAll(".webcam")].every(w => w.scrollWidth <= w.closest(".city-card, li").clientWidth + 1));
+
+    // 12. Tokens
+    const block = sel => { const i = css.indexOf(sel); const a = css.indexOf("{", i), c = css.indexOf("}", a); return css.slice(a + 1, c); };
+    const used = [...new Set([...css.matchAll(/\.webcam[^{]*\{([^}]*)\}/g)].flatMap(m => [...m[1].matchAll(/var\((--[\w-]+)\)/g)].map(x => x[1])))];
+    ok("12 the webcam rules use tokens", used.length >= 4, used.join());
+    for (const [name, sel] of [[":root", ":root {"], ["the prefers-color-scheme dark block", ':root:not([data-theme="light"])'], ["the data-theme dark block", ':root[data-theme="dark"]']]) {
+      const missing = used.filter(t => !new RegExp(t + "\\s*:").test(block(sel)));
+      ok("12 tokens the webcam block uses are defined in " + name, missing.length === 0, "missing " + missing.join());
+    }
+    ok("12 the webcam rules hold no colour literals", !/\.webcam[^{]*\{[^}]*#[0-9a-f]{3,6}/i.test(css));
+
+    // 7. No Windy API in the browser, plus static checks on the migration
+    const files = ["index.html", "common.js", "auth.js", "webcam.js", "cities.js", "history.js", "notifications.js", "style.css"];
+    const src = await Promise.all(files.map(f => fetch("../" + f, { cache: "no-store" }).then(r => r.text())));
+    ok("7 no frontend file mentions api.windy, x-windy-api-key or WINDY_API_KEY", src.every(s => !/api\.windy|x-windy-api-key|WINDY_API_KEY/i.test(s)),
+      files.filter((f, i) => /api\.windy|x-windy-api-key|WINDY_API_KEY/i.test(src[i])).join());
+    const wsrc = src[files.indexOf("webcam.js")];
+    ok("7 webcam.js makes no network call", !/fetch\(|XMLHttpRequest|sendBeacon|supabase/.test(wsrc.replace(/\/\/.*$/gm, "")));
+    const sql = await (await fetch("../supabase/migrations/0005_city_webcams.sql", { cache: "no-store" })).text();
+    const code = sql.replace(/--.*$/gm, "");
+    ok("1 migration adds the seven webcam columns to public.cities", /alter table public\.cities/i.test(code) &&
+      ["webcam_id", "webcam_title", "webcam_page_url", "webcam_player_url", "webcam_status", "webcam_checked_at", "webcam_next_try_at"].every(c => new RegExp("add column " + c + "\\b").test(code)));
+    ok("1 migration creates no table and has no image, bytea or picture column", !/create table/i.test(code) && !/bytea|image|picture|thumbnail/i.test(code));
+    ok("1 status is limited to found or none", /webcam_status in \('found', 'none'\)/.test(code));
+    ok("1 a check constraint ties the four camera fields to status found", /add constraint cities_webcam_fields check/.test(code) && /webcam_status = 'found'/.test(code));
+    ok("1 RLS stays on and authenticated can't write cities", /alter table public\.cities enable row level security/i.test(code) &&
+      /revoke insert, update, delete, truncate on public\.cities from authenticated/i.test(code));
+    ok("1 the cron job reads the URL and secret from Vault and holds no literal secret", /cron\.schedule\(\s*'webcams'/.test(code) && (code.match(/vault\.decrypted_secrets/g) || []).length >= 2 &&
+      /name = 'collect_secret'/.test(code) && !/eyJ|sk_|re_[A-Za-z0-9]{8}|x-collect-secret',\s*'[^']/.test(code) && !/https?:\/\/[a-z0-9.-]+\.supabase\.co/.test(code));
+    ok("1 the Edge Function files exist", await Promise.all(["index.ts", "logic.ts", "logic_test.ts"].map(f => fetch("../supabase/functions/webcams/" + f, { cache: "no-store" }).then(r => r.ok))).then(a => a.every(Boolean)));
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam]];
 
   async function run() {
     const saved = {};
