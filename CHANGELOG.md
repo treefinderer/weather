@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-02
+
+- Fix: Your cities loads even before the webcam migration is applied (it retries without the webcam details instead of showing "Can't load your cities").
+
 ## 2026-11-01
 
 - Live webcam: each city card can open a live view from the most viewed nearby Windy webcam (looked up once per city on the server, refreshed weekly), with the Windy credit. ([spec 0010](docs/specs/0010-live-webcam.md))
