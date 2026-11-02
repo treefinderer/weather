@@ -274,7 +274,20 @@
             <h3 id="history-temp-title">Day and night temperature</h3>
             <p class="chart-legend" aria-hidden="true"><span class="legend-item legend-day"><span class="legend-glyph"></span>Day (12pm)</span><span class="legend-item legend-night"><span class="legend-glyph"></span>Night (12am)</span></p>
           </div>
-          <div class="chart-box"><canvas id="history-temp-chart" role="img"></canvas></div>
+          <div class="chart-box"><canvas id="history-temp-chart" role="img" tabindex="0" aria-describedby="history-temp-hint"></canvas></div>
+          <p class="hint" id="history-temp-hint">Point at or tap a reading to see its satellite picture. When the chart has focus, use the Left and Right arrow keys.</p>
+        </section>
+        <section class="chart-card pic-card" id="history-pic-card" aria-labelledby="history-pic-title">
+          <h3 id="history-pic-title">Satellite pictures</h3>
+          <figure class="history-picture">
+            <div class="pic-frame" id="history-pic-frame"><div class="pic-empty"><span class="pic-empty-glyph" aria-hidden="true"></span><p class="pic-empty-text" id="history-pic-empty"></p></div></div>
+            <figcaption class="pic-caption" id="history-pic-caption">Imagery: NASA GIBS / EOSDIS</figcaption>
+          </figure>
+          <div class="pic-nav">
+            <button type="button" class="btn-secondary" id="history-pic-older">Older</button>
+            <p class="pic-label" id="history-pic-label" aria-live="polite" aria-atomic="true"></p>
+            <button type="button" class="btn-secondary" id="history-pic-newer">Newer</button>
+          </div>
         </section>
         <section class="chart-card" id="history-avg-card" aria-labelledby="history-avg-title" hidden>
           <div class="chart-head">
@@ -447,6 +460,7 @@
 <footer class="footer">
   <div class="footer-inner">
     <p>Weather data from <a href="https://open-meteo.com/">Open-Meteo</a> and <a href="https://api.met.no/">MET Norway</a>. Weather Insights records past readings; it doesn't forecast.</p>
+    <p>Imagery: <a href="https://www.earthdata.nasa.gov/gibs">NASA GIBS / EOSDIS</a></p>
     <p><a href="https://github.com/treefinderer/weather">Source code on GitHub</a></p>
   </div>
 </footer>

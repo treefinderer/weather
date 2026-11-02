@@ -950,11 +950,11 @@
 
     // 6. Footer
     const links = () => [...doc.querySelectorAll("footer a")].map(a => a.getAttribute("href"));
-    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://github.com/treefinderer/weather"]) {
+    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://www.earthdata.nasa.gov/gibs", "https://github.com/treefinderer/weather"]) {
       ok("5 footer links " + href + " on Landing", links().includes(href) && visible(doc.querySelector('footer a[href="' + href + '"]')));
     }
     await signedIn();
-    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 3);
+    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 4);
     $("settings-open").click();
     ok("5 footer visible on Settings", visible(doc.querySelector("footer")));
 
@@ -1364,8 +1364,10 @@
     ok("10 stat tiles 2 by 2", new Set([...doc.querySelectorAll("#history-stats > li")].map(l => l.offsetLeft)).size === 2);
 
     // 11. Focus
+    // Spec 0009 deliberately adds the temperature canvas and the picture viewer's Older and Newer as the only chart-card stops.
     ok("11 tiles and chart cards are not focusable", [...doc.querySelectorAll("#history-stats, #history-stats li, .chart-card")].every(e => e.tabIndex < 0) &&
-      !doc.querySelector('#history-stats a, #history-stats button, .chart-card a, .chart-card button, .chart-card [tabindex]:not([tabindex="-1"])'));
+      !doc.querySelector('#history-stats a, #history-stats button, .chart-card a, .chart-card button:not(#history-pic-older):not(#history-pic-newer), ' +
+        '.chart-card [tabindex]:not([tabindex="-1"]):not(#history-temp-chart)'));
     ok("11 radios are focusable inputs", [...doc.querySelectorAll("#history-source input")].every(r => r.tabIndex === 0 || r.tabIndex === -1) && !doc.querySelector("#history-source [tabindex]"));
 
     // 12 (tokens) and scripts

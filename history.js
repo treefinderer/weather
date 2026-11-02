@@ -1,6 +1,7 @@
 // Weather history: one city's daily day and night readings for a chosen period and source, as a table, a temperature
-// graph, period averages and summary tiles, in the user's unit (specs 0003 and 0007). Opened by #history/<cityId>/<period>/<source> hashes.
-// Uses Wx.supabase, Wx.user, Wx.unit, Wx.onAccountChange, Wx.fmt and Wx.condition, plus the global Chart (Chart.js 4).
+// graph, period averages and summary tiles, in the user's unit (specs 0003 and 0007), with a satellite picture viewer linked
+// to the graph and the table (spec 0009). Opened by #history/<cityId>/<period>/<source> hashes.
+// Uses Wx.supabase, Wx.user, Wx.unit, Wx.onAccountChange, Wx.fmt, Wx.condition and Wx.pic, plus the global Chart (Chart.js 4).
 (function () {
   "use strict";
   const Wx = window.Wx;
@@ -18,6 +19,8 @@
   const FIELDS = [["temperature_c", "Temperature", "temp"], ["feels_like_c", "Feels like", "temp"], ["humidity_pct", "Humidity", "pct"],
     ["wind_speed_ms", "Wind", "wind"], ["precipitation_mm", "Precipitation", "rain"], ["weather_code", "Conditions", null]];
   const COLS = "source, slot, local_date, temperature_c, feels_like_c, humidity_pct, wind_speed_ms, precipitation_mm, weather_code";
+  const PIC_COLS = "local_date, slot, layer, bbox, storage_path";
+  const PIC_MAX_AGE_MS = 50 * 60e3; // signed URLs last an hour, so older ones are made again on the next load
   // Auth screens that take the place of the city list; while one shows, the history view is hidden too.
   const OTHER_SCREENS = ["loading", "unavailable", "landing", "signin", "signup", "forgot", "reset", "settings"];
   const MSG = {
@@ -25,7 +28,8 @@
     both: "Choose both a start and an end date.",
     order: "The start date must be on or before the end date.",
     future: "The end date can't be after today in this city",
-    long: "Choose a range of at most 366 days."
+    long: "Choose a range of at most 366 days.",
+    picFailed: "Picture unavailable"
   };
 
   // --- State, reset whenever the signed-in user changes ---
@@ -42,6 +46,15 @@
   let lastCityId = null;     // whose History button gets focus back
   let customOpen = false;    // the Custom range panel was opened over a preset period, so it stays open until left
   let charts = [];
+  let picCache = {};         // "cityId|from|to" -> { rows, urls, failed, at }: the period's pictures and their signed URLs
+  let pics = null;           // the picCache entry of the period on show
+  let sel = null;            // the viewer's { date, slot }, kept across source and unit changes
+  let selKey = "";           // the period sel belongs to; a new period selects the newest again
+  let shown = null;          // what render() drew: { g, steps, dates }, for selection changes without a full render
+  let tempChart = null;      // the temperature chart, for its selected point and keyboard tooltip
+  const viewer = { frame: $("history-pic-frame"), text: $("history-pic-empty"), img: null, marker: null };
+  let viewerKey = null;      // the picture in the viewer ("path|url"), so re-renders don't reload it
+  let viewerFailed = false;  // that picture failed to load
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -175,6 +188,22 @@
     return { data: all };
   }
 
+  // The period's pictures and one batch of signed URLs. A failure leaves the history as it is: the viewer then shows
+  // "Picture unavailable" for the pictures it knows of (all of them when the list itself failed).
+  async function fetchPictures(sb, cityId, from, to) {
+    const out = { rows: [], urls: {}, failed: false, at: Date.now() };
+    const res = await request(() => sb.from("city_pictures").select(PIC_COLS).eq("city_id", cityId)
+      .gte("local_date", from).lte("local_date", to).order("local_date", { ascending: true }));
+    if (res.error) { out.failed = true; return out; }
+    out.rows = (Array.isArray(res.data) ? res.data : []).filter(p => p && p.storage_path && parseIso(p.local_date) &&
+      (p.slot === "day" || p.slot === "night"));
+    if (out.rows.length) {
+      const signed = await request(() => Wx.pic.sign(sb, out.rows.map(p => p.storage_path)).then(data => ({ data, error: null })));
+      if (signed.error) out.failed = true; else out.urls = signed.data;
+    }
+    return out;
+  }
+
   // Any unexpected error ends in the error state with Try again, never an unhandled rejection.
   async function refresh() {
     const s = ++seq, r = route;
@@ -195,12 +224,13 @@
       city = null;
       renderHeader();
       setView("loading");
-      const res = await request(() => sb.from("cities").select("id, name, admin1, country, timezone").eq("id", r.cityId).maybeSingle());
+      const res = await request(() => sb.from("cities").select("id, name, admin1, country, lat, lon, timezone").eq("id", r.cityId).maybeSingle());
       if (stale()) return;
       if (res.error) return setView("error");
       if (!res.data) return setView("gone");
       const c = res.data;
-      city = { id: Number(c.id), name: c.name || "", admin1: c.admin1 || "", country: c.country || "", timezone: c.timezone || "UTC" };
+      city = { id: Number(c.id), name: c.name || "", admin1: c.admin1 || "", country: c.country || "", lat: c.lat, lon: c.lon,
+        timezone: c.timezone || "UTC" };
       renderHeader();
     }
     const today = todayIn(city.timezone);
@@ -214,14 +244,22 @@
     range = rg;
     renderControls();
     const key = r.cityId + "|" + rg.from + "|" + rg.to;
+    const freshPics = picCache[key] && Date.now() - picCache[key].at < PIC_MAX_AGE_MS;
     if (!cache[key]) {
       setView("loading");
-      const res = await fetchRows(sb, r.cityId, rg.from, rg.to);
+      const [res, pr] = await Promise.all([fetchRows(sb, r.cityId, rg.from, rg.to), freshPics ? null : fetchPictures(sb, r.cityId, rg.from, rg.to)]);
       if (stale()) return;
       if (res.error) return setView("error");
       cache[key] = res.data;
+      if (pr) picCache[key] = pr;
+    } else if (!freshPics) {
+      const pr = await fetchPictures(sb, r.cityId, rg.from, rg.to);
+      if (stale()) return;
+      picCache[key] = pr;
     }
     rows = cache[key];
+    pics = picCache[key];
+    if (key !== selKey) { selKey = key; sel = null; }
     // A new period or source starts on the first table page; a unit change or a reopen keeps the page.
     if (key + "|" + r.source !== pageKey) { pageKey = key + "|" + r.source; page = 0; }
     setView("ready");
@@ -231,6 +269,10 @@
     seq++;
     city = null;
     cache = {};
+    picCache = {};
+    pics = null;
+    sel = null;
+    selKey = "";
     rows = null;
     range = null;
     page = 0;
@@ -241,19 +283,34 @@
   }
 
   // --- Values ---
-  // Groups rows by date and lists every date from the newest with a reading back to the oldest, newest first.
-  function group(list) {
-    const by = {};
+  // Groups rows by date and lists every date from the newest with a reading or a picture back to the oldest, newest first.
+  // pic holds the period's pictures by date and slot.
+  function group(list, picRows) {
+    const by = {}, pic = {};
     (list || []).forEach(r => {
       if (!r || !SOURCES[r.source] || r.source === "avg" || (r.slot !== "day" && r.slot !== "night") || !parseIso(r.local_date)) return;
       const d = by[r.local_date] || (by[r.local_date] = {});
       (d[r.source] = d[r.source] || {})[r.slot] = r;
     });
-    const keys = Object.keys(by).sort();
+    (picRows || []).forEach(p => { (pic[p.local_date] = pic[p.local_date] || {})[p.slot] = p; });
+    const keys = Object.keys(by).concat(Object.keys(pic)).sort();
     const dates = [];
     if (keys.length) for (let d = keys[keys.length - 1]; d >= keys[0]; d = addDays(d, -1)) dates.push(d);
-    return { by, dates };
+    return { by, pic, dates };
   }
+  const groupShown = () => group(rows, pics && pics.rows);
+  // The viewer's steps: every date and slot with a reading from any source or a picture, oldest first (night, then day).
+  function steps(g) {
+    const out = [];
+    g.dates.slice().reverse().forEach(d => {
+      ["night", "day"].forEach(slot => {
+        const rec = g.by[d];
+        if ((rec && Object.keys(rec).some(src => rec[src][slot])) || (g.pic[d] && g.pic[d][slot])) out.push({ date: d, slot });
+      });
+    });
+    return out;
+  }
+  const stepIndex = (list, s) => (s ? list.findIndex(x => x.date === s.date && x.slot === s.slot) : -1);
   // One field of one slot for the chosen source. Average: the mean of the sources that have a value;
   // conditions can't be averaged, so Open-Meteo's is used, or MET Norway's when Open-Meteo has none.
   function value(rec, slot, field, source) {
@@ -304,16 +361,21 @@
 
   function render() {
     const ready = view === "ready" && !$("screen-history").hidden;
-    const g = ready ? group(rows) : { dates: [] };
+    const g = ready ? groupShown() : { dates: [] };
     setHidden($("history-empty"), !(ready && !g.dates.length));
     setHidden($("history-content"), !g.dates.length);
     if (!g.dates.length) {
+      shown = null;
       destroyCharts();
       return;
     }
+    const list = steps(g);
+    if (stepIndex(list, sel) < 0) sel = list.length ? list[list.length - 1] : null;
+    shown = { g, steps: list, dates: g.dates.slice().reverse() };
     renderStats(g);
     renderTable(g);
     renderCharts(g);
+    renderPicture();
   }
 
   // Period summary tiles over the whole loaded period for the chosen source, from memory (spec 0007).
@@ -356,7 +418,7 @@
     const pages = Math.max(1, Math.ceil(g.dates.length / TABLE_ROWS));
     page = Math.min(page, pages - 1);
     const first = page * TABLE_ROWS;
-    const shown = g.dates.slice(first, first + TABLE_ROWS);
+    const onPage = g.dates.slice(first, first + TABLE_ROWS);
     const table = $("history-table");
     table.textContent = "";
     table.appendChild(el("caption", "visually-hidden", "Daily readings, " + SOURCES[source] + ", newest first"));
@@ -382,44 +444,123 @@
     head.appendChild(sub);
     table.appendChild(head);
     const body = el("tbody");
-    shown.forEach(d => {
+    onPage.forEach(d => {
       const tr = el("tr");
+      tr.dataset.date = d;
       const th = el("th", "date", Wx.fmt.day(d));
       th.scope = "row";
       tr.appendChild(th);
       SLOTS.forEach(([slot]) => {
         FIELDS.forEach(([field, , fmt], i) => {
-          tr.appendChild(el("td", i ? "" : "slot-start", cell(fmt, value(g.by[d], slot, field, source))));
+          const td = el("td", i ? "" : "slot-start", cell(fmt, value(g.by[d], slot, field, source)));
+          td.dataset.slot = slot;
+          tr.appendChild(td);
         });
       });
       body.appendChild(tr);
     });
     table.appendChild(body);
-    $("history-page-info").textContent = "Days " + (first + 1) + "–" + (first + shown.length) + " of " + g.dates.length;
+    $("history-page-info").textContent = "Days " + (first + 1) + "–" + (first + onPage.length) + " of " + g.dates.length;
     $("history-newer").disabled = page === 0;
     $("history-older").disabled = page >= pages - 1;
+    markTable();
+  }
+  // Outlines the selected date's Day or Night cells, when that row is on this page.
+  function markTable() {
+    $("history-table").querySelectorAll(".is-pick, .is-pick-date").forEach(c => c.classList.remove("is-pick", "is-pick-first", "is-pick-last", "is-pick-date"));
+    if (!sel) return;
+    const tr = Array.from($("history-table").querySelectorAll("tbody tr")).find(t => t.dataset.date === sel.date);
+    if (!tr) return;
+    tr.querySelector("th").classList.add("is-pick-date");
+    const cells = Array.from(tr.querySelectorAll("td")).filter(td => td.dataset.slot === sel.slot);
+    cells.forEach((td, i) => {
+      td.classList.add("is-pick");
+      if (i === 0) td.classList.add("is-pick-first");
+      if (i === cells.length - 1) td.classList.add("is-pick-last");
+    });
+  }
+
+  // --- Satellite picture viewer ---
+  function renderPicture() {
+    if (!shown || !sel) return;
+    const i = stepIndex(shown.steps, sel);
+    const when = Wx.pic.when(sel.date, sel.slot);
+    if ($("history-pic-label").textContent !== when) $("history-pic-label").textContent = when;
+    const older = $("history-pic-older"), newer = $("history-pic-newer");
+    const had = document.activeElement;
+    older.disabled = i <= 0;
+    newer.disabled = i < 0 || i >= shown.steps.length - 1;
+    // A button that was focused and is now disabled hands focus to the other one, so focus isn't lost.
+    if (had === older && older.disabled && !newer.disabled) newer.focus();
+    if (had === newer && newer.disabled && !older.disabled) older.focus();
+    const row = shown.g.pic[sel.date] && shown.g.pic[sel.date][sel.slot];
+    const url = row && pics && !pics.failed ? pics.urls[row.storage_path] || null : null;
+    const caption = $("history-pic-caption");
+    if (url) {
+      const k = row.storage_path + "|" + url;
+      if (k !== viewerKey) {
+        viewerKey = k;
+        viewerFailed = false;
+        Wx.pic.show(viewer, { url, row, city, failText: MSG.picFailed,
+          onFail: () => { if (viewerKey === k) { viewerFailed = true; caption.textContent = Wx.pic.CREDIT; } } });
+      }
+      caption.textContent = viewerFailed ? Wx.pic.CREDIT : Wx.pic.caption(row);
+      return;
+    }
+    viewerKey = null;
+    caption.textContent = Wx.pic.CREDIT;
+    Wx.pic.show(viewer, { text: row || (pics && pics.failed) ? MSG.picFailed : "No satellite picture for " + when });
+  }
+  // Selects a date and slot from the viewer buttons, the chart or the table, and updates all three.
+  // fromKeys shows that point's tooltip on the chart.
+  function select(s, fromKeys) {
+    if (!shown || stepIndex(shown.steps, s) < 0) return;
+    const same = sel && sel.date === s.date && sel.slot === s.slot;
+    sel = { date: s.date, slot: s.slot };
+    if (!same) { markTable(); renderPicture(); }
+    if (!same || fromKeys) updateChart(fromKeys);
+  }
+  function step(by, fromKeys) {
+    if (!shown) return;
+    const i = stepIndex(shown.steps, sel), next = shown.steps[i + by];
+    if (next) select(next, fromKeys);
   }
 
   // --- Charts ---
   function destroyCharts() {
     charts.forEach(c => { try { c.destroy(); } catch (e) { /* already gone */ } });
     charts = [];
+    tempChart = null;
   }
   function colors() {
     const css = getComputedStyle(document.documentElement);
     const v = name => css.getPropertyValue(name).trim();
-    return { day: v("--chart-day"), night: v("--chart-night"), grid: v("--chart-grid"), text: v("--chart-text") };
+    return { day: v("--chart-day"), night: v("--chart-night"), grid: v("--chart-grid"), text: v("--chart-text"), pick: v("--pick") };
+  }
+  // The temperature chart's selected point as { dataset, index } in its data (day is dataset 0, night 1), or null.
+  function chartPick() {
+    if (!shown || !sel) return null;
+    const index = shown.dates.indexOf(sel.date);
+    return index < 0 ? null : { dataset: sel.slot === "day" ? 0 : 1, index };
   }
   // A line chart of day (solid) and night (dashed) temperatures; gaps where a value is missing.
-  function lineConfig(labels, day, night, c, points) {
+  // With pick, the selected point is drawn larger with a --pick ring, over a dashed --pick guide line (spec 0009).
+  function lineConfig(labels, day, night, c, points, pick) {
+    const radius = points || labels.length <= 45 ? 3 : 0;
+    const picked = ctx => {
+      const p = pick && chartPick();
+      return !!p && ctx.type === "data" && ctx.datasetIndex === p.dataset && ctx.dataIndex === p.index;
+    };
     const dataset = (label, data, color, dash, style) => ({
       label, data, borderColor: color, backgroundColor: color, borderWidth: 2.5, borderDash: dash, pointStyle: style,
-      pointRadius: points || labels.length <= 45 ? 3 : 0, pointHoverRadius: 5, pointBorderWidth: 0, pointHitRadius: 8,
-      spanGaps: false, tension: 0
+      pointRadius: pick ? ctx => (picked(ctx) ? 6 : radius) : radius, pointHoverRadius: pick ? ctx => (picked(ctx) ? 6 : 5) : 5,
+      pointBorderWidth: pick ? ctx => (picked(ctx) ? 3 : 0) : 0, pointBorderColor: pick ? ctx => (picked(ctx) ? c.pick : color) : color,
+      pointHoverBorderWidth: pick ? ctx => (picked(ctx) ? 3 : 0) : 0, pointHoverBorderColor: pick ? ctx => (picked(ctx) ? c.pick : color) : color,
+      pointHitRadius: 8, spanGaps: false, tension: 0
     });
     const font = { family: getComputedStyle(document.body).fontFamily, size: 12 };
     const ticks = extra => Object.assign({ color: c.text, font }, extra);
-    return {
+    const config = {
       type: "line",
       data: { labels, datasets: [dataset("Day (12pm)", day, c.day, [], "circle"), dataset("Night (12am)", night, c.night, [6, 4], "rect")] },
       options: {
@@ -436,6 +577,52 @@
         }
       }
     };
+    if (pick) {
+      // Pointing at a point (or tapping near one) selects its date and slot in the viewer.
+      const choose = (evt, chart, intersect) => {
+        const hit = chart.getElementsAtEventForMode(evt, "nearest", { intersect }, false)[0];
+        const date = hit && shown && shown.dates[hit.index];
+        if (date && hit.element && !hit.element.skip) select({ date, slot: hit.datasetIndex === 0 ? "day" : "night" });
+      };
+      config.options.onHover = (evt, active, chart) => choose(evt, chart, true);
+      config.options.onClick = (evt, active, chart) => choose(evt, chart, false);
+      config.plugins = [{
+        id: "wxPickLine",
+        beforeDatasetsDraw(chart) {
+          const p = chartPick(), area = chart.chartArea;
+          if (!p || !area || !chart.scales.x) return;
+          const x = chart.scales.x.getPixelForValue(p.index), ctx = chart.ctx;
+          ctx.save();
+          ctx.strokeStyle = c.pick;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, area.top);
+          ctx.lineTo(x, area.bottom);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }];
+    }
+    return config;
+  }
+  // Redraws the selected point and guide line. From the keyboard it also shows that point's tooltip, when it has a value.
+  // Hover and taps redraw on the next tick, outside Chart.js's own event handling.
+  function updateChart(fromKeys) {
+    const chart = tempChart;
+    if (!chart || typeof chart.update !== "function") return;
+    if (!fromKeys) {
+      Promise.resolve().then(() => { if (chart === tempChart) chart.update("none"); });
+      return;
+    }
+    const p = chartPick();
+    const meta = p && chart.getDatasetMeta(p.dataset);
+    const point = meta && meta.data[p.index];
+    const has = p && chart.data.datasets[p.dataset].data[p.index] != null;
+    const active = has ? [{ datasetIndex: p.dataset, index: p.index }] : [];
+    chart.setActiveElements(active);
+    if (chart.tooltip) chart.tooltip.setActiveElements(active, point ? { x: point.x, y: point.y } : { x: 0, y: 0 });
+    chart.update();
   }
   // "Day and night temperature, Sep 28 to Oct 27, Average. Day 12°C to 24°C, night 4°C to 15°C."
   function summary(title, day, night) {
@@ -449,7 +636,9 @@
   }
   function draw(canvas, config, label) {
     canvas.setAttribute("aria-label", label);
-    charts.push(new window.Chart(canvas, config));
+    const chart = new window.Chart(canvas, config);
+    charts.push(chart);
+    return chart;
   }
 
   function renderCharts(g) {
@@ -467,7 +656,7 @@
       const dates = g.dates.slice().reverse();
       const temps = slot => dates.map(d => chartTemp(value(g.by[d], slot, "temperature_c", source)));
       const day = temps("day"), night = temps("night");
-      draw($("history-temp-chart"), lineConfig(dates.map(Wx.fmt.day), day, night, c, false),
+      tempChart = draw($("history-temp-chart"), lineConfig(dates.map(Wx.fmt.day), day, night, c, false, true),
         summary("Day and night temperature", day, night));
 
       // Period averages: weeks from Monday up to 120 days, calendar months beyond, over the whole period.
@@ -537,9 +726,24 @@
     msg.textContent = problem;
     if (!problem) { customOpen = false; go(from + ".." + to, route.source); }
   });
-  // Paging redraws only the table; the charts always cover the whole period.
-  $("history-newer").addEventListener("click", () => { page = Math.max(0, page - 1); renderTable(group(rows)); });
-  $("history-older").addEventListener("click", () => { page++; renderTable(group(rows)); });
+  // Paging redraws only the table; the charts and the picture viewer always cover the whole period.
+  $("history-newer").addEventListener("click", () => { page = Math.max(0, page - 1); renderTable(groupShown()); });
+  $("history-older").addEventListener("click", () => { page++; renderTable(groupShown()); });
+
+  // Picture viewer: Older and Newer step one slot; with the chart focused, Left and Right do the same.
+  $("history-pic-older").addEventListener("click", () => step(-1));
+  $("history-pic-newer").addEventListener("click", () => step(1));
+  $("history-temp-chart").addEventListener("keydown", e => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    step(e.key === "ArrowLeft" ? -1 : 1, true);
+  });
+  // Clicking or tapping a row's Day or Night cells selects that date and slot (the keyboard uses the viewer and chart).
+  $("history-table").addEventListener("click", e => {
+    const td = e.target.closest && e.target.closest("tbody td[data-slot]");
+    const tr = td && td.closest("tr");
+    if (tr && tr.dataset.date) select({ date: tr.dataset.date, slot: td.dataset.slot });
+  });
 
   // Chart colors come from the CSS tokens, so the charts are rebuilt when the color scheme changes.
   const scheme = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
