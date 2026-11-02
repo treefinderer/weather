@@ -1382,9 +1382,209 @@
     eq("1 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
   }
 
+  // City search autocomplete (spec 0008, criteria 1-12; dark-mode and motion looks are manual)
+  async function typeahead() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const q = () => $("city-query");
+    const geoCalls = () => mock.calls.filter(u => u.startsWith(GEO_URL));
+    const opts = () => [...doc.querySelectorAll("#city-results li[role=option]")];
+    const opt = id => doc.querySelector('#city-results li[data-id="' + id + '"]');
+    const txt = id => $(id).textContent;
+    const row = (id, name) => ({ city_id: id, added_at: "2026-10-20T00:00:00Z",
+      cities: { id, name, admin1: "Region", country: "France", lat: 48.85, lon: 2.35, timezone: "Europe/Paris" } });
+    const open = async (userCities, width) => {
+      sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
+      sb.replies["user_cities.select"] = { data: userCities || [], error: null };
+      sb.replies["latest_readings.select"] = { data: [], error: null };
+      mock.fetch[GEO_URL] = GEO.par;
+      await loadPage(width || 1280);
+      mock.calls = [];
+      sb.calls = [];
+    };
+    const find = async s => { type(q(), ""); type(q(), s); await wait(360); };
+    const isOpen = () => !$("city-results").hidden && q().getAttribute("aria-expanded") === "true";
+    const ten = n => ({ results: Array.from({ length: 10 }, (_, i) => ({ id: 900 + i, name: n + i, latitude: 1, longitude: 2,
+      admin1: "Some Long Region Name", country: "Some Country With A Long Name", timezone: "UTC" })) });
+
+    // 1. One debounced request, count=10, list opens
+    await open();
+    type(q(), "Pa");
+    await wait(100);
+    eq("1 no request before the pause ends", geoCalls().length, 0);
+    await wait(260);
+    eq("1 one request after the pause", geoCalls().length, 1);
+    ok("1 request has name=Pa and count=10", /name=Pa&/.test(geoCalls()[0] || "") && /count=10/.test(geoCalls()[0] || ""), geoCalls()[0]);
+    ok("1 listbox open with options, aria-expanded true", isOpen() && opts().length === 3 && $("city-results").getAttribute("role") === "listbox");
+    ok("1 combobox attributes", q().getAttribute("role") === "combobox" && q().getAttribute("aria-controls") === "city-results" && q().getAttribute("aria-autocomplete") === "list");
+    ok("1 no option is highlighted on open", opts().every(o => o.getAttribute("aria-selected") === "false") && !q().hasAttribute("aria-activedescendant"));
+    await wait(400);
+    eq("1 still one request later", geoCalls().length, 1);
+    q().click(); await wait(50);
+    eq("1 clicking back into the input sends no request", geoCalls().length, 1);
+
+    // 2. Fast typing is one request; newest reply wins
+    await open();
+    for (const s of ["B", "Be", "Ber", "Berl", "Berli", "Berlin"]) { type(q(), s); await wait(60); }
+    await wait(360);
+    eq("2 Berlin typed fast sends one request", geoCalls().length, 1);
+    ok("2 that request is for name=Berlin", /name=Berlin&/.test(geoCalls()[0] || ""), geoCalls()[0]);
+    const pend = [];
+    const body = results => ({ ok: true, status: 200, json: () => Promise.resolve({ results }) });
+    win.fetch = url => new Promise(res => pend.push({ url, res }));
+    const one = [{ id: 1, name: "Pa", latitude: 1, longitude: 2, timezone: "UTC", country: "X" }];
+    await find("Pa");
+    type(q(), "Par"); await wait(360);
+    eq("2 two requests pending", pend.length, 2);
+    pend[1].res(body(GEO.par.results)); await wait(30);
+    pend[0].res(body(one)); await wait(30);
+    ok("2 an older reply arriving later does not replace newer suggestions", opts().length === 3 && !opt(1), opts().length + " options");
+
+    // 3. Short queries
+    await open();
+    type(q(), "P"); await wait(360);
+    type(q(), "  "); await wait(360);
+    eq("3 one character and spaces send nothing", geoCalls().length, 0);
+    eq("3 no Type-at-least message while typing", txt("search-msg"), "");
+    const late = [];
+    win.fetch = url => new Promise(res => late.push(res));
+    type(q(), "Pa"); await wait(360);
+    type(q(), "P");
+    late[0](body(GEO.par.results)); await wait(30);
+    ok("3 deleting to one character closes the list and drops the reply", !isOpen() && opts().length === 0 && txt("search-msg") === "");
+
+    // 4. Choosing by click
+    await open();
+    await find("Par");
+    const o = opt(2988507);
+    ok("4 row shows city, region, country and no button", o.querySelector(".city-result-name").textContent === "Paris" &&
+      o.querySelector(".city-result-region").textContent === "Île-de-France, France" && !o.querySelector("button"));
+    q().focus();
+    const md = new win.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    o.dispatchEvent(md);
+    ok("4 mousedown on a row is default-prevented, so the input keeps focus", md.defaultPrevented);
+    o.click(); await wait(80);
+    eq("4 follow_city called once", sbCalls("rpc.follow_city").length, 1);
+    eq("4 Added Paris. shown", txt("cities-msg"), "Added Paris.");
+    eq("4 one city card", doc.querySelectorAll("#city-list > li").length, 1);
+    ok("4 input emptied, list closed, focus in input", q().value === "" && !isOpen() && doc.activeElement === q());
+
+    // 5. Followed rows, limit, failed add
+    await open([row(2988507, "Paris")]);
+    await find("Par");
+    const f = opt(2988507);
+    ok("5 followed row shows Added, aria-disabled, accessible name", f.textContent.includes("Added") && f.getAttribute("aria-disabled") === "true" && /already added/.test(f.getAttribute("aria-label")));
+    ok("5 other rows are not disabled", opt(3171457).getAttribute("aria-disabled") === "false");
+    f.click(); await wait(60);
+    eq("5 clicking a followed row sends no request", sbCalls("rpc.follow_city").length, 0);
+    await open(Array.from({ length: 10 }, (_, i) => row(100 + i, "City" + i)));
+    await find("Par");
+    ok("5 at 10 cities every row is disabled and the limit shows", opts().length === 3 && opts().every(x => x.getAttribute("aria-disabled") === "true") && !$("cities-limit").hidden);
+    opts()[0].click(); await wait(60);
+    eq("5 choosing at the limit does nothing", sbCalls("rpc.follow_city").length, 0);
+    await open();
+    sb.replies["rpc.follow_city"] = { data: null, error: SB_ERR.network };
+    await find("Par");
+    opt(2988507).click(); await wait(80);
+    eq("5 failed add message", txt("cities-msg"), "Can't add the city. Check your connection and try again.");
+    ok("5 failed add keeps the text and the list, row choosable again", q().value === "Par" && isOpen() && opt(2988507).getAttribute("aria-disabled") === "false");
+
+    // 6. Keyboard
+    await open();
+    await find("Par");
+    q().focus();
+    const sel = () => opts().map(x => x.getAttribute("aria-selected")).join(",");
+    const ad = () => q().getAttribute("aria-activedescendant");
+    const down = key(q(), "ArrowDown");
+    eq("6 Down highlights the first row", sel(), "true,false,false");
+    ok("6 Down is default-prevented and sets aria-activedescendant", !down && ad() === opts()[0].id);
+    key(q(), "ArrowDown"); key(q(), "ArrowDown"); key(q(), "ArrowDown");
+    eq("6 Down stops at the last row", sel(), "false,false,true");
+    eq("6 aria-activedescendant follows", ad(), opts()[2].id);
+    key(q(), "ArrowUp");
+    eq("6 Up moves to the previous row", sel(), "false,true,false");
+    key(q(), "ArrowUp"); key(q(), "ArrowUp");
+    ok("6 Up from the first row clears the highlight", sel() === "false,false,false" && !ad());
+    ok("6 focus stays in the input", doc.activeElement === q());
+    key(q(), "ArrowDown"); key(q(), "ArrowDown");
+    key(q(), "Enter"); await wait(80);
+    eq("6 Enter adds the highlighted city", sbCalls("rpc.follow_city").map(c => c.args[0].p_id).join(","), "4717560");
+
+    // 7. Enter with nothing highlighted, Escape, Tab, outside click
+    await open();
+    await find("Par");
+    q().focus();
+    const enter = key(q(), "Enter"); await wait(60);
+    ok("7 Enter with nothing highlighted adds nothing and is default-prevented", sbCalls("rpc.follow_city").length === 0 && !enter);
+    let reloaded = false;
+    win.addEventListener("beforeunload", () => { reloaded = true; });
+    $("city-search").requestSubmit(); await wait(60);
+    ok("7 submitting the form does not reload or add", !reloaded && sbCalls("rpc.follow_city").length === 0);
+    key(q(), "Escape");
+    ok("7 Escape closes the list and keeps the text", !isOpen() && q().value === "Par");
+    key(q(), "ArrowDown");
+    ok("7 Down reopens the closed list for the same query", isOpen() && geoCalls().length === 1);
+    key(q(), "Tab");
+    ok("7 Tab closes the list and chooses nothing", !isOpen() && sbCalls("rpc.follow_city").length === 0);
+    key(q(), "ArrowDown");
+    doc.body.click();
+    ok("7 clicking outside closes the list", !isOpen());
+
+    // 8. Live region and messages
+    await open();
+    const live = $("city-results-status");
+    ok("8 live region is polite", live.getAttribute("aria-live") === "polite");
+    await find("Par");
+    eq("8 count announced", live.textContent, "3 suggestions available.");
+    mock.fetch[GEO_URL] = { results: [GEO.par.results[0]] };
+    await find("Pari");
+    eq("8 singular announced", live.textContent, "1 suggestion available.");
+    mock.fetch[GEO_URL] = GEO.none;
+    await find("zzzz");
+    ok("8 empty reply shows No places found and closes the list", txt("search-msg") === 'No places found for "zzzz".' && !isOpen());
+    mock.fetch[GEO_URL] = null;
+    await find("Parx");
+    ok("8 failed request shows the message and closes the list", txt("search-msg") === "Can't search right now. Check your connection and try again." && !isOpen());
+    mock.fetch[GEO_URL] = GEO.par;
+    type(q(), "Parxy"); await wait(360);
+    ok("8 the next keystroke tries again", isOpen());
+
+    // 9. Markup
+    ok("9 no #city-search-submit", !$("city-search-submit"));
+    ok("9 label Search for a city is tied to #city-query", q().labels.length === 1 && q().labels[0].textContent === "Search for a city");
+
+    // 10. 400px
+    await open([], 400);
+    mock.fetch[GEO_URL] = ten("Springfield");
+    await find("Spring");
+    const de = doc.documentElement;
+    eq("10 ten options", opts().length, 10);
+    ok("10 no sideways scroll at 400px", de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+    ok("10 every row is at least 44px tall", opts().every(x => x.offsetHeight >= 44), opts().map(x => x.offsetHeight).join(","));
+    const lr = $("city-results").getBoundingClientRect(), fr = q().closest(".city-search-row").getBoundingClientRect();
+    ok("10 list is no wider than the viewport and matches the field", lr.right <= de.clientWidth && Math.abs(lr.width - fr.width) < 2, lr.width + " vs " + fr.width);
+
+    // 11. Tokens and motion (the dark-mode and reduced-motion looks are manual)
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+    const block = sel => { const i = css.indexOf(sel); const a = css.indexOf("{", i), c = css.indexOf("}", a); return css.slice(a + 1, c); };
+    for (const [name, sel] of [[":root", ":root {"], ["the prefers-color-scheme dark block", ':root:not([data-theme="light"])'], ["the data-theme dark block", ':root[data-theme="dark"]']]) {
+      const b = block(sel);
+      ok("11 --option-hover and --option-active are in " + name, /--option-hover\s*:/.test(b) && /--option-active\s*:/.test(b));
+    }
+    const mi = css.indexOf("@media (prefers-reduced-motion: no-preference)");
+    const mEnd = css.indexOf("\n}\n", mi);
+    const inside = css.slice(mi, mEnd), outside = css.slice(0, mi) + css.slice(mEnd);
+    ok("11 the open animation is inside prefers-reduced-motion: no-preference", /\.city-results\.is-opening\s*\{[^}]*animation/.test(inside));
+    ok("11 no open animation outside it", !/is-opening/.test(outside) && !/wx-drop/.test(outside));
+
+    // 12. No new scripts or external URLs
+    const html = await (await fetch("../index.html", { cache: "no-store" })).text();
+    const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].length;
+    eq("12 script tag count unchanged", scripts, 8);
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead]];
 
   async function run() {
     const saved = {};
