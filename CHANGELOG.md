@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- Live webcam: each city card can open a live view from the most viewed nearby Windy webcam (looked up once per city on the server, refreshed weekly), with the Windy credit. ([spec 0010](docs/specs/0010-live-webcam.md))
 - Satellite pictures: the collector saves one NASA GIBS satellite picture per city for each day and night reading, shared by everyone who follows the city. The latest picture shows on each city card, and History has a picture viewer linked to the temperature chart and the table. ([spec 0009](docs/specs/0009-satellite-pictures.md))
 - City search is now an autocomplete: after 2 letters up to 10 suggestions drop down and update as you type, and one click (or arrow keys and Enter) adds the city. The Search button is gone. ([spec 0008](docs/specs/0008-city-search-typeahead.md))
 

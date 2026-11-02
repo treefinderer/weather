@@ -310,6 +310,19 @@ form .link { display: block; margin-bottom: 12px; }
 .pic-img.is-loaded { opacity: 1; }
 .pic-marker { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; transform: translate(-50%, -50%); pointer-events: none; }
 .pic-caption { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.4; letter-spacing: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Live view (spec 0010): the last block on a city card. A divider, a compact pill, then a 16:9 player box only while
+   open, the camera link and Windy's credit in body text. The box shares the 0009 picture fill and radius. */
+.webcam { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
+.city-media + .webcam { margin-top: 0; padding-top: 0; border-top: 0; }
+.webcam > * { min-width: 0; max-width: 100%; }
+.webcam-player { align-self: stretch; margin-top: 16px; }
+.webcam-frame { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: var(--pic-empty); border: 1px solid var(--hairline); border-radius: 14px; }
+.webcam-frame:focus-within { outline: 2px solid var(--focus); outline-offset: 3px; }
+.webcam-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
+.webcam-frame iframe:focus, .webcam-frame iframe:focus-visible { outline: none; }
+.webcam-name { margin: 12px 0 0; font-weight: 500; }
+.webcam-credit { margin: 4px 0 0; color: var(--text); }
+.webcam-none { margin: 0; color: var(--muted); font-size: 15px; letter-spacing: 0; }
 .slot { min-width: 0; }
 .slot-title { margin: 0 0 10px; color: var(--muted); font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: 0; }
 .readings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr)); gap: 8px; }
@@ -478,6 +491,7 @@ form .link { display: block; margin-bottom: 12px; }
   .city-glyph { width: 32px; height: 32px; }
   .city-summary { margin-bottom: 16px; padding-bottom: 16px; }
   .city-media { margin-bottom: 16px; padding-bottom: 16px; }
+  .webcam { margin-top: 16px; padding-top: 16px; }
   .slots { gap: 16px; }
   .city-list { gap: 12px; }
   #cities-title, #settings-title { letter-spacing: -0.02em; }
