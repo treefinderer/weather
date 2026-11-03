@@ -2,8 +2,8 @@
 
 - Date: 2026-11-03
 - Branch: feature/0011-landing-new-features
-- Commit tested: COMMIT
-- Result: **PASS**. `tests/run.sh` (clean worktree of the commit): RESULT_LINE
+- Commit tested: 867c0ea (tests only; feature code at fb9540a)
+- Result: **PASS**. `tests/run.sh` (clean worktree of the commit): `RESULT: PASS 696/696`
 
 ## Covered (group "Landing new features (0011)" in tests/tests.js)
 - Criterion 1: section order and bands (History alt, Satellite plain, Live view alt, Email plain; others unchanged).
