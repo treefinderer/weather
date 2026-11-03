@@ -2083,9 +2083,134 @@
     eq("History logs no console error", mock.errors.join("|"), "");
   }
 
+  // Landing: satellite pictures and live view (spec 0011, criteria 1-8; dark-mode looks are manual, see docs/qa/0011-landing-new-features.md)
+  async function landingNewFeatures() {
+    const U = { id: "u1", email: "ann@example.com" };
+    const visible = el => !!el && el.getClientRects().length > 0;
+    const signedOut = async w => { sb.replies["auth.getSession"] = { data: { session: null }, error: null }; await loadPage(w || 1280); };
+    const signedIn = async w => { sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null }; await loadPage(w || 1280); };
+    const html = await (await fetch("../index.html", { cache: "no-store" })).text();
+    const css = await (await fetch("../style.css", { cache: "no-store" })).text();
+    const sections = () => [...doc.querySelectorAll("#screen-landing > section.band, #screen-landing > .band")];
+    const feat = id => doc.querySelector('#screen-landing section[aria-labelledby="' + id + '"]');
+    const norm = s => s.replace(/\s+/g, " ").trim();
+    const NASA = "https://www.earthdata.nasa.gov/gibs", WINDY = "https://www.windy.com/", WADD = "https://www.windy.com/webcams/add";
+
+    // 1. Order and bands
+    await signedOut();
+    const bandOf = s => s.classList.contains("band-alt") ? "alt" : "plain";
+    const ids = sections().map(s => s.getAttribute("aria-labelledby") || (s.classList.contains("hero") ? "hero" : "?"));
+    eq("1 section order", ids.join(","), "hero,feature-cities-title,feature-readings-title,feature-history-title,feature-satellite-title,feature-webcam-title,feature-email-title,steps-title,closing-title");
+    const bands = id => bandOf(feat(id));
+    eq("1 History alt, Satellite plain, Live view alt, Email plain", ["feature-history-title", "feature-satellite-title", "feature-webcam-title", "feature-email-title"].map(bands).join(","), "alt,plain,alt,plain");
+    eq("1 earlier and later bands unchanged", ["feature-cities-title", "feature-readings-title", "steps-title", "closing-title"].map(bands).join(","), "alt,plain,alt,plain");
+    ok("1 Satellite and Email are flipped, Live view is not", feat("feature-satellite-title").classList.contains("feature-flip") && feat("feature-email-title").classList.contains("feature-flip") && !feat("feature-webcam-title").classList.contains("feature-flip"));
+
+    // 2-3. Copy
+    const copy = id => { const t = feat(id).querySelector(".feature-text"); return [t.querySelector(".eyebrow").textContent, t.querySelector("h3").textContent, t.querySelector("p:not(.eyebrow):not(.feature-credit)").textContent].map(norm); };
+    eq("2 Satellite eyebrow, h3, text", copy("feature-satellite-title").join(" | "),
+      "From above | Your cities, seen from space. | Weather Insights saves a satellite picture of the area around each city: true color by day, infrared clouds by night. Pictures arrive the day after. The latest one shows on your city card, and in History you can step through them beside the chart and table.");
+    eq("3 Live view eyebrow, h3, text", copy("feature-webcam-title").join(" | "),
+      "Live view | See it as it is, right now. | Where a public webcam is nearby, open a live view straight from your city card, and follow the link to the camera's page. Nothing is recorded. It's simply a window onto the moment.");
+    eq("5 hero subline", norm(doc.querySelector("#screen-landing .hero-sub").textContent),
+      "Follow up to 10 cities and build a twice-daily weather history from two independent sources, plus satellite pictures and live webcam views.");
+    ok("5 hero subline mentions satellite pictures", /satellite pictures/.test(doc.querySelector("#screen-landing .hero-sub").textContent));
+
+    // 4. Credits and links
+    const credit = id => feat(id).querySelector("p.feature-credit");
+    const hrefs = el => [...el.querySelectorAll("a")].map(a => a.getAttribute("href"));
+    eq("4 Satellite credit text", norm(credit("feature-satellite-title").textContent), "Imagery: NASA GIBS / EOSDIS");
+    eq("4 Satellite credit link", hrefs(credit("feature-satellite-title")).join(","), NASA);
+    eq("4 Live view credit text", norm(credit("feature-webcam-title").textContent), "Webcams provided by windy.com - add new webcam");
+    eq("4 Live view credit links", hrefs(credit("feature-webcam-title")).join(","), WINDY + "," + WADD);
+    eq("4 credit link texts", [...doc.querySelectorAll("#screen-landing .feature-credit a")].map(a => a.textContent).join("|"), "NASA GIBS / EOSDIS|windy.com|add new webcam");
+    ok("4 credit links open in the same tab", [...doc.querySelectorAll("#screen-landing .feature-credit a")].every(a => !a.hasAttribute("target")));
+    const fp = [...doc.querySelectorAll("footer p")].map(p => norm(p.textContent));
+    ok("4 footer has the NASA credit", fp.includes("Imagery: NASA GIBS / EOSDIS") && hrefs(doc.querySelector("footer")).includes(NASA));
+    ok("4 footer has the Windy credit with both links", fp.includes("Webcams provided by windy.com - add new webcam") &&
+      [...doc.querySelectorAll("footer a")].filter(a => a.closest("p").textContent.includes("Webcams")).map(a => a.getAttribute("href")).join(",") === WINDY + "," + WADD);
+    eq("4 footer has 6 links", doc.querySelectorAll("footer a").length, 6);
+    const lt = doc.querySelector("#screen-landing").innerText;
+    ok("4 NASA and Windy named only in the credits", [...doc.querySelectorAll("#screen-landing *")].filter(e => e.children.length === 0 && /nasa|windy/i.test(e.textContent)).every(e => e.closest(".feature-credit")));
+    ok("4 no NASA or Windy picture on Landing", ![...doc.querySelectorAll("#screen-landing img")].some(i => /nasa|windy/i.test(i.getAttribute("src"))));
+
+    // 5. No live/real-time claim about readings, no webcam promise for every city
+    ok("5 no real-time anywhere on Landing", !/real[- ]?time/i.test(lt));
+    const sentences = lt.split(/(?<=[.!?])\s+|\n+/);
+    const liveBad = sentences.filter(s => /\blive\b/i.test(s) && !/webcam|view/i.test(s));
+    ok("5 'live' only about webcams or the live view", liveBad.length === 0, liveBad.join(" / "));
+    ok("5 no promise of a webcam for every city", !/(webcam|camera)[^.]*\b(every|each|all) (city|cities)/i.test(lt) && !/\b(every|each|all) (city|cities)[^.]*(webcam|camera)/i.test(lt));
+
+    // 6. Images and scripts
+    const imgFor = (id, src) => { const i = feat(id).querySelector("img"); return i && i.getAttribute("src") === src ? i : null; };
+    for (const [id, src] of [["feature-satellite-title", "assets/feature-satellite.svg"], ["feature-webcam-title", "assets/feature-webcam.svg"]]) {
+      const i = imgFor(id, src);
+      ok("6 " + src + " is the section image", !!i);
+      ok("6 " + src + " alt empty, 640x480", i && i.getAttribute("alt") === "" && i.getAttribute("width") === "640" && i.getAttribute("height") === "480");
+      ok("6 " + src + " not focusable", i && !i.hasAttribute("tabindex") && !i.closest("a, button"));
+      const r = await fetch("../" + src, { cache: "no-store" });
+      ok("6 " + src + " exists and is an SVG", r.ok && /<svg[\s>]/.test(await r.text()));
+    }
+    ok("6 no external image on Landing", [...doc.querySelectorAll("#screen-landing img")].every(i => /^assets\/[^/]+\.svg$/.test(i.getAttribute("src"))) && !/<img[^>]+src="https?:/.test(html));
+    eq("6 script tag count unchanged (9)", [...html.matchAll(/<script\b[^>]*src=/g)].length, 9);
+    ok("6 no script inside Landing", !doc.querySelector("#screen-landing script") && !/<script\b(?![^>]*src=)/.test(html));
+
+    // 7. Phone width: no sideways scroll, image above text, signed out and in
+    for (const [name, load] of [["signed out", signedOut], ["signed in", signedIn]]) {
+      await load(400);
+      if (name === "signed in") { $("brand-link").click(); await wait(150); }
+      const de = doc.documentElement;
+      ok("7 no sideways scroll at 400px, " + name, de.scrollWidth <= de.clientWidth, de.scrollWidth + " > " + de.clientWidth);
+      for (const id of ["feature-satellite-title", "feature-webcam-title"]) {
+        const img = feat(id).querySelector("img").getBoundingClientRect(), tx = feat(id).querySelector(".feature-text").getBoundingClientRect();
+        ok("7 " + id + " image above text, " + name, img.bottom <= tx.top + 1 && img.right <= 400.5 && tx.right <= 400.5, "img.bottom " + img.bottom + ", text.top " + tx.top);
+        const cr = credit(id).getBoundingClientRect();
+        ok("7 " + id + " credit inside the screen, " + name, cr.left >= 0 && cr.right <= 400.5);
+      }
+    }
+
+    // 7. Tab order (signed out and signed in)
+    for (const [name, load] of [["signed out", signedOut], ["signed in", signedIn]]) {
+      await load(1280);
+      if (name === "signed in") { $("brand-link").click(); await wait(150); }
+      const f = [...doc.querySelectorAll("a[href], button, input, select, textarea, [tabindex='0']")].filter(e => visible(e) && !e.disabled);
+      const idx = [...doc.querySelectorAll("#screen-landing .feature-credit a")].map(a => f.indexOf(a));
+      const closeIdx = f.findIndex(e => e.closest(".closing"));
+      const lastHero = Math.max(...[...doc.querySelectorAll("#screen-landing .hero button")].map(b => f.indexOf(b)));
+      ok("7 three credit links are Tab stops in order, " + name, idx.length === 3 && idx.every(i => i >= 0) && idx[0] < idx[1] && idx[1] < idx[2], idx.join(","));
+      ok("7 credit links sit between the hero and the closing button, " + name, idx[0] > lastHero && idx[2] < closeIdx);
+      ok("7 no other Tab stops between the credit links, " + name, idx[1] === idx[0] + 1 && idx[2] === idx[1] + 1);
+      ok("7 only the three credit links were added between hero and closing, " + name, closeIdx - lastHero - 1 === 3);
+    }
+
+    // Computed credit styles (both bands)
+    await signedOut(1280);
+    const colorOf = tok => { const s = doc.createElement("span"); s.style.color = "var(" + tok + ")"; doc.body.appendChild(s); const c = win.getComputedStyle(s).color; s.remove(); return c; };
+    for (const id of ["feature-satellite-title", "feature-webcam-title"]) {
+      const p = credit(id), cs = win.getComputedStyle(p);
+      eq(id + " credit font-size 14px", cs.fontSize, "14px");
+      eq(id + " credit colour is --muted", cs.color, colorOf("--muted"));
+      ok(id + " credit margin-top 16px", cs.marginTop === "16px", cs.marginTop);
+      for (const a of p.querySelectorAll("a")) {
+        const as = win.getComputedStyle(a);
+        ok(id + " link '" + a.textContent + "' underlined, --text colour", as.textDecorationLine.includes("underline") && as.color === colorOf("--text"), as.textDecorationLine + " " + as.color);
+      }
+    }
+
+    // 8. Tokens in both dark modes (no new colour of its own)
+    const block = sel => { const i = css.indexOf(sel); const o = css.indexOf("{", i), c = css.indexOf("}", o); return css.slice(o + 1, c); };
+    const rules = [...css.matchAll(/[^{}]*\.feature-credit[^{}]*\{[^}]*\}/g)].map(m => m[0]);
+    ok("8 credit rules exist and use no literal colour", rules.length >= 2 && rules.every(r => !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(r)), rules.join(" "));
+    ok("8 credit link colour is the --text token", /\.feature-credit a\s*\{[^}]*color:\s*var\(--text\)/.test(css));
+    for (const [name, sel] of [[":root", ":root {"], ["prefers-color-scheme dark", ':root:not([data-theme="light"])'], ["data-theme dark", ':root[data-theme="dark"]']]) {
+      const b = block(sel);
+      ok("8 --muted, --text, --focus, --band, --band-alt in " + name, ["--muted", "--text", "--focus", "--band", "--band-alt"].every(v => new RegExp(v + "\\s*:").test(b)));
+    }
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam], ["Load before migrations", beforeMigrations]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam], ["Load before migrations", beforeMigrations], ["Landing new features (0011)", landingNewFeatures]];
 
   async function run() {
     const saved = {};
