@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-03
+
+- Landing page: new Satellite pictures and Live view sections with original illustrations and source credits, an updated hero subline, and a Windy credit in the footer. ([spec 0011](docs/specs/0011-landing-new-features.md))
+
 ## 2026-11-02
 
 - Fix: Your cities loads even before the webcam migration is applied (it retries without the webcam details instead of showing "Can't load your cities").
