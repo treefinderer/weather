@@ -963,11 +963,11 @@
 
     // 6. Footer
     const links = () => [...doc.querySelectorAll("footer a")].map(a => a.getAttribute("href"));
-    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://www.earthdata.nasa.gov/gibs", "https://github.com/treefinderer/weather"]) {
+    for (const href of ["https://open-meteo.com/", "https://api.met.no/", "https://www.earthdata.nasa.gov/gibs", "https://www.windy.com/", "https://www.windy.com/webcams/add", "https://github.com/treefinderer/weather"]) {
       ok("5 footer links " + href + " on Landing", links().includes(href) && visible(doc.querySelector('footer a[href="' + href + '"]')));
     }
     await signedIn();
-    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 4);
+    ok("5 footer visible on signed-in screens", visible(doc.querySelector("footer")) && links().length === 6);
     $("settings-open").click();
     ok("5 footer visible on Settings", visible(doc.querySelector("footer")));
 
@@ -1876,8 +1876,8 @@
     const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1]);
     eq("12 script tag count unchanged (webcam.js added by spec 0010)", scripts.length, 9);
     const hosts = [...new Set([...html.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map(m => m[1]))].sort();
-    eq("12 index.html hosts: only the existing ones plus earthdata.nasa.gov", hosts.join(","),
-      "api.met.no,cdn.jsdelivr.net,fonts.googleapis.com,fonts.gstatic.com,github.com,open-meteo.com,www.earthdata.nasa.gov");
+    eq("12 index.html hosts: only the existing ones plus earthdata.nasa.gov (and www.windy.com credit links, spec 0011)", hosts.join(","),
+      "api.met.no,cdn.jsdelivr.net,fonts.googleapis.com,fonts.gstatic.com,github.com,open-meteo.com,www.earthdata.nasa.gov,www.windy.com");
     const js = (await Promise.all(["common.js", "cities.js", "history.js"].map(f => fetch("../" + f, { cache: "no-store" }).then(r => r.text())))).join("\n");
     ok("12 no GIBS host in browser code (images come from Storage)", !/gibs\.earthdata/.test(js) && !/gibs\.earthdata/.test(html));
     ok("12 no service-role key in browser code", !/service_role|SERVICE_ROLE/.test(js));
