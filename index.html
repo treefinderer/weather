@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
-<link rel="stylesheet" href="style.css?v=2026110201">
+<link rel="stylesheet" href="style.css?v=2026110301">
 </head>
 <body>
 <header class="topbar">
@@ -34,7 +34,7 @@
     <div class="band hero">
       <div class="hero-text">
         <h2 class="hero-title" id="landing-title" tabindex="-1">Weather, remembered.</h2>
-        <p class="hero-sub">Follow up to 10 cities and build a twice-daily weather history from two independent sources.</p>
+        <p class="hero-sub">Follow up to 10 cities and build a twice-daily weather history from two independent sources, plus satellite pictures and live webcam views.</p>
         <div class="hero-actions when-out">
           <button type="button" class="btn" data-go="signup">Get started</button>
           <button type="button" class="chevron-link" data-go="signin">Sign in</button>
@@ -72,6 +72,28 @@
           <p class="eyebrow">History</p>
           <h3 id="feature-history-title">See how it really was.</h3>
           <p>Browse daily readings in a table, or follow day and night temperatures on charts, from the last week to the last year. Show everything in °C or °F.</p>
+        </div>
+      </div>
+    </section>
+    <section class="band feature feature-flip" aria-labelledby="feature-satellite-title">
+      <div class="feature-inner">
+        <img src="assets/feature-satellite.svg" alt="" width="640" height="480">
+        <div class="feature-text">
+          <p class="eyebrow">From above</p>
+          <h3 id="feature-satellite-title">Your cities, seen from space.</h3>
+          <p>Weather Insights saves a satellite picture of the area around each city: true color by day, infrared clouds by night. Pictures arrive the day after. The latest one shows on your city card, and in History you can step through them beside the chart and table.</p>
+          <p class="feature-credit">Imagery: <a href="https://www.earthdata.nasa.gov/gibs">NASA GIBS / EOSDIS</a></p>
+        </div>
+      </div>
+    </section>
+    <section class="band band-alt feature" aria-labelledby="feature-webcam-title">
+      <div class="feature-inner">
+        <img src="assets/feature-webcam.svg" alt="" width="640" height="480">
+        <div class="feature-text">
+          <p class="eyebrow">Live view</p>
+          <h3 id="feature-webcam-title">See it as it is, right now.</h3>
+          <p>Where a public webcam is nearby, open a live view straight from your city card, and follow the link to the camera's page. Nothing is recorded. It's simply a window onto the moment.</p>
+          <p class="feature-credit">Webcams provided by <a href="https://www.windy.com/">windy.com</a> - <a href="https://www.windy.com/webcams/add">add new webcam</a></p>
         </div>
       </div>
     </section>
@@ -461,17 +483,18 @@
   <div class="footer-inner">
     <p>Weather data from <a href="https://open-meteo.com/">Open-Meteo</a> and <a href="https://api.met.no/">MET Norway</a>. Weather Insights records past readings; it doesn't forecast.</p>
     <p>Imagery: <a href="https://www.earthdata.nasa.gov/gibs">NASA GIBS / EOSDIS</a></p>
+    <p>Webcams provided by <a href="https://www.windy.com/">windy.com</a> - <a href="https://www.windy.com/webcams/add">add new webcam</a></p>
     <p><a href="https://github.com/treefinderer/weather">Source code on GitHub</a></p>
   </div>
 </footer>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=2026110201"></script>
-<script src="common.js?v=2026110201"></script>
-<script src="auth.js?v=2026110201"></script>
-<script src="webcam.js?v=2026110201"></script>
-<script src="cities.js?v=2026110201"></script>
+<script src="config.js?v=2026110301"></script>
+<script src="common.js?v=2026110301"></script>
+<script src="auth.js?v=2026110301"></script>
+<script src="webcam.js?v=2026110301"></script>
+<script src="cities.js?v=2026110301"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
-<script src="history.js?v=2026110201"></script>
-<script src="notifications.js?v=2026110201"></script>
+<script src="history.js?v=2026110301"></script>
+<script src="notifications.js?v=2026110301"></script>
 </body>
 </html>

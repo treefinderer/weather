@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" width="640" height="480">
+  <defs>
+    <linearGradient id="s-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7A56E0"/>
+      <stop offset="1" stop-color="#3D7FEA"/>
+    </linearGradient>
+    <linearGradient id="s-earth" gradientUnits="userSpaceOnUse" x1="0" y1="360" x2="0" y2="480">
+      <stop offset="0" stop-color="#6FD6EC"/>
+      <stop offset="1" stop-color="#2C6FD6"/>
+    </linearGradient>
+    <linearGradient id="s-pic" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3FA7C9"/>
+      <stop offset="1" stop-color="#2F6BD8"/>
+    </linearGradient>
+    <clipPath id="s-tile"><rect width="640" height="480" rx="32"/></clipPath>
+    <clipPath id="s-globe"><circle cx="320" cy="1000" r="640"/></clipPath>
+    <clipPath id="s-picclip"><rect x="420" y="180" width="164" height="112" rx="12"/></clipPath>
+    <filter id="s-shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#1E1666" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#s-tile)">
+    <rect width="640" height="480" fill="url(#s-bg)"/>
+    <circle cx="80" cy="70" r="130" fill="#FFFFFF" fill-opacity="0.07"/>
+
+    <!-- Stars -->
+    <g fill="#FFFFFF">
+      <circle cx="64" cy="210" r="2.5" fill-opacity="0.7"/>
+      <circle cx="132" cy="56" r="2" fill-opacity="0.6"/>
+      <circle cx="356" cy="40" r="2.5" fill-opacity="0.7"/>
+      <circle cx="590" cy="62" r="2" fill-opacity="0.6"/>
+      <circle cx="380" cy="230" r="2" fill-opacity="0.5"/>
+      <circle cx="40" cy="320" r="2" fill-opacity="0.5"/>
+    </g>
+
+    <!-- Orbit -->
+    <path d="M-20 300 C 140 120, 460 80, 660 140" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2.5" stroke-dasharray="2 12" stroke-linecap="round"/>
+
+    <!-- Imaging beam -->
+    <polygon points="214,196 166,396 304,396 246,196" fill="#FFFFFF" fill-opacity="0.1"/>
+
+    <!-- Earth limb -->
+    <circle cx="320" cy="1000" r="652" fill="none" stroke="#FFFFFF" stroke-opacity="0.2" stroke-width="12"/>
+    <circle cx="320" cy="1000" r="640" fill="url(#s-earth)" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="2"/>
+    <g clip-path="url(#s-globe)" fill="none" stroke="#FFFFFF" stroke-linecap="round">
+      <ellipse cx="236" cy="372" rx="44" ry="7" fill="#FFFFFF" fill-opacity="0.3" stroke="none"/>
+      <path d="M30 430 C 100 404, 180 406, 232 422 C 262 432, 292 428, 310 414" stroke-width="10" stroke-opacity="0.7"/>
+      <path d="M378 410 C 390 390, 450 388, 464 406 C 474 420, 446 430, 426 422 C 412 416, 420 402, 436 406" stroke-width="7" stroke-opacity="0.85"/>
+      <path d="M480 446 C 530 428, 590 430, 650 444" stroke-width="9" stroke-opacity="0.55"/>
+      <path d="M-10 464 C 60 448, 150 450, 220 466" stroke-width="8" stroke-opacity="0.45"/>
+      <path d="M260 456 C 300 444, 350 446, 390 458" stroke-width="6" stroke-opacity="0.5"/>
+    </g>
+
+    <!-- Satellite -->
+    <g transform="translate(230 150) rotate(-15)">
+      <line x1="-60" y1="0" x2="60" y2="0" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+      <g filter="url(#s-shadow)">
+        <rect x="-150" y="-26" width="96" height="52" rx="6" fill="#1F3B99"/>
+        <rect x="54" y="-26" width="96" height="52" rx="6" fill="#1F3B99"/>
+      </g>
+      <g fill="none" stroke="#FFFFFF" stroke-width="3">
+        <rect x="-150" y="-26" width="96" height="52" rx="6"/>
+        <rect x="54" y="-26" width="96" height="52" rx="6"/>
+      </g>
+      <g stroke="#9DBBFF" stroke-opacity="0.75" stroke-width="1.5">
+        <line x1="-118" y1="-24" x2="-118" y2="24"/><line x1="-86" y1="-24" x2="-86" y2="24"/>
+        <line x1="-148" y1="0" x2="-56" y2="0"/>
+        <line x1="86" y1="-24" x2="86" y2="24"/><line x1="118" y1="-24" x2="118" y2="24"/>
+        <line x1="56" y1="0" x2="148" y2="0"/>
+      </g>
+      <line x1="0" y1="-38" x2="0" y2="-60" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="0" cy="-62" r="6" fill="#FFD76A" stroke="#FFFFFF" stroke-width="2"/>
+      <g filter="url(#s-shadow)"><rect x="-34" y="-38" width="68" height="76" rx="14" fill="#FFFFFF"/></g>
+      <rect x="-34" y="-8" width="68" height="14" fill="#E8EEFF"/>
+      <rect x="-14" y="36" width="28" height="14" rx="4" fill="#D2D8EA"/>
+      <circle cx="0" cy="-1" r="13" fill="#1D1D1F"/>
+      <circle cx="0" cy="-1" r="6" fill="#6FD6EC"/>
+      <circle cx="3" cy="-4" r="2" fill="#FFFFFF"/>
+    </g>
+
+    <!-- Saved picture cards -->
+    <rect x="420" y="148" width="196" height="184" rx="20" fill="#FFFFFF" fill-opacity="0.3"/>
+    <g filter="url(#s-shadow)"><rect x="404" y="164" width="196" height="184" rx="20" fill="#FFFFFF"/></g>
+    <rect x="420" y="180" width="164" height="112" rx="12" fill="url(#s-pic)"/>
+    <g clip-path="url(#s-picclip)">
+      <path d="M420 240 C 448 226, 470 244, 496 232 C 520 222, 540 236, 584 224 V292 H420 Z" fill="#7ED3A0" fill-opacity="0.6"/>
+      <g fill="none" stroke="#FFFFFF" stroke-linecap="round">
+        <path d="M432 208 C 456 194, 490 200, 500 214" stroke-width="7" stroke-opacity="0.85"/>
+        <path d="M520 254 C 530 240, 560 242, 562 258 C 563 270, 544 274, 538 264 C 534 256, 544 252, 548 258" stroke-width="5" stroke-opacity="0.9"/>
+        <path d="M540 204 C 556 198, 572 200, 590 206" stroke-width="5" stroke-opacity="0.7"/>
+      </g>
+      <g transform="translate(474 264) scale(0.8)">
+        <path d="M0 0 C -4 -8 -12 -14 -12 -22 A 12 12 0 1 1 12 -22 C 12 -14 4 -8 0 0 Z" fill="#FFFFFF"/>
+        <circle cx="0" cy="-22" r="4.5" fill="#2F6BEA"/>
+      </g>
+    </g>
+    <rect x="420" y="308" width="96" height="10" rx="5" fill="#1D1D1F" fill-opacity="0.85"/>
+    <rect x="420" y="326" width="60" height="8" rx="4" fill="#86868B" fill-opacity="0.5"/>
+    <circle cx="570" cy="318" r="11" fill="#FFD76A"/>
+    <circle cx="570" cy="318" r="5" fill="#F5A623"/>
+  </g>
+</svg>

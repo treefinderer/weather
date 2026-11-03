@@ -193,6 +193,9 @@ form .link { display: block; margin-bottom: 12px; }
 .landing .feature-text .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: clamp(15px, 0.3vw + 14px, 17px); font-weight: 600; line-height: 1.3; letter-spacing: 0; }
 .landing h3 { margin: 0 0 16px; font-size: clamp(32px, 2.5vw + 21px, 48px); font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; overflow-wrap: break-word; }
 .landing .feature-text .badge { display: inline-block; margin-top: 16px; padding: 6px 12px; color: var(--text); background: var(--badge-bg); border-radius: 980px; font-size: 13px; font-weight: 600; line-height: 1; letter-spacing: 0.01em; }
+.feature-text .feature-credit { margin-top: 16px; font-size: 14px; line-height: 1.43; letter-spacing: 0; overflow-wrap: anywhere; }
+.feature-text .feature-credit a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; border-radius: 4px; }
+.feature-text .feature-credit a:hover { text-decoration: none; }
 .steps { text-align: center; }
 .step-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; max-width: 980px; margin: 56px auto 0; padding: 0; list-style: none; }
 .step-list li { display: flex; flex-direction: column; align-items: center; min-width: 0; }
