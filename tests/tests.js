@@ -36,7 +36,9 @@
   //   mock.requests every fetch as { url, method, body } (body as the page sent it, e.g. a JSON string).
   //   mock.search   the page's query string (e.g. "?unsubscribe=abc"), set before loadPage. A srcdoc page has none, so the
   //                 page reads it from window.WX_TEST_SEARCH (spec 0004's unsubscribe link). Reset before each group.
-  const mock = { calls: [], requests: [], errors: [], fetch: {}, search: null };
+  //   HTTP status: a reply (or a function's return value) can be { __http: status, body } to answer with that status code
+  //                 (body null: no JSON), or { __never: true } to never answer (a hung request). Others reply 200.
+  const mock = { calls: [], requests: [], errors: [], fetch: {}, search: null, http: { status: 200 } };
   // Mocked supabase-js, reset before each group. Set sb.replies before loadPage when the page reads them on load.
   //   sb.calls      every call: { method, args }. Methods are "createClient", "auth.<name>", "rpc.<function>" (args[0] is
   //                 the parameters object) and "<table>.<first op>" (e.g. "profiles.select", "user_cities.delete",
@@ -77,12 +79,15 @@
     // Returns the reply body as JSON text, or null for a network failure.
     respond(url, init) {
       mock.calls.push(url);
-      mock.requests.push({ url, method: (init && init.method) || "GET", body: init ? init.body : undefined });
+      mock.requests.push({ url, method: (init && init.method) || "GET", body: init ? init.body : undefined, headers: init ? init.headers : undefined });
       const prefix = Object.keys(mock.fetch).find(p => url.startsWith(p));
       const reply = prefix === undefined ? null : mock.fetch[prefix];
-      const body = typeof reply === "function" ? reply(url, init) : reply;
+      let body = typeof reply === "function" ? reply(url, init) : reply;
+      mock.http = { status: 200 };
+      if (body && (body.__http !== undefined || body.__never)) { mock.http = { status: body.__http || 200, never: !!body.__never }; body = body.body === undefined ? {} : body.body; if (body === null) return "null"; }
       return body == null ? null : JSON.stringify(body);
     },
+    http() { return mock.http; },
     error(msg) { mock.errors.push(msg); },
     search() { return mock.search; },
     sbSetup() { return { loaded: sb.loaded, config: sb.config }; },
@@ -125,8 +130,10 @@
   }
   window.fetch = function (url, init) {
     var text = T.respond(String(url), init);
+    var http = T.http();
+    if (http.never) return new Promise(function () {});
     if (text === null) return Promise.reject(new TypeError("Failed to fetch (mocked)"));
-    return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(JSON.parse(text)); } });
+    return Promise.resolve({ ok: http.status < 300, status: http.status, json: function () { return Promise.resolve(JSON.parse(text)); } });
   };
   var search = T.search();
   if (search != null) window.WX_TEST_SEARCH = search;
@@ -2208,9 +2215,324 @@
     }
   }
 
+  // Chat assistant (spec 0012, criteria 2-7 and 12, the static parts of 1 and 11). The chat function is mocked with real
+  // status codes; Deno tests (8-10) and the live Workers AI call are not run here, see docs/qa/0012-chat-assistant.md.
+  async function chatAssistant() {
+    const CHAT = "https://mock.supabase.co/functions/v1/chat";
+    const U = { id: "u1", email: "ann@example.com" };
+    const RESET = "2026-11-04T00:00:00Z";
+    const http = (status, body) => ({ __http: status, body });
+    const text = u => fetch("../" + u, { cache: "no-store" }).then(r => r.text());
+    const visible = el => !!el && el.getClientRects().length > 0;
+    const norm = s => s.replace(/\s+/g, " ").trim();
+    // The chat function: a status call ({messages: []}) answers `status`, a question answers `answer(messages)`.
+    let status = { remaining: 4 }, answer = () => ({ reply: "ok", remaining: 3 });
+    mock.fetch[CHAT] = (u, init) => { const m = JSON.parse(init.body).messages; return m.length ? answer(m) : status; };
+    const reqs = () => mock.requests.filter(r => r.url === CHAT).map(r => JSON.parse(r.body));
+    const questions = () => reqs().filter(b => b.messages.length);
+    let log = null, panel = null;  // refreshed after every page load
+    const fresh = async w => { mock.requests.length = 0; await loadPage(w || 1280); log = $("chat-log"); panel = $("chat-panel"); };
+    const signedOut = async w => { sb.replies["auth.getSession"] = { data: { session: null }, error: null }; await fresh(w); };
+    const signedIn = async w => { sb.replies["auth.getSession"] = { data: { session: { user: U, access_token: "tok-1" } }, error: null }; await fresh(w); };
+    // Opens the panel and jumps its open animation to the end, so geometry checks see the resting position.
+    const openChat = async () => { $("chat-open").click(); await wait(80); doc.getAnimations().forEach(a => a.finish()); await wait(30); };
+    const ask = async (q, ms) => { type($("chat-input"), q); $("chat-send").click(); await wait(ms || 80); };
+    const bubbles = () => [...$("chat-log").children].map(p => norm(p.textContent));
+    const last = () => bubbles().pop();
+    const countText = () => $("chat-count").hidden ? null : norm($("chat-count").textContent);
+    const hit = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    const UNAVAIL = "The assistant is unavailable right now, try later.";
+
+    // 2. Launcher on every screen, at 400px and 1280px
+    const goHistory = async w => {
+      clock.now = Date.UTC(2026, 9, 27, 12);
+      sb.replies["user_cities.select"] = { data: [{ city_id: 5, added_at: "2026-10-01T00:00:00Z", cities: { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", lat: 48.8, lon: 2.3, timezone: "Europe/Paris" } }], error: null };
+      sb.replies["cities.select"] = { data: { id: 5, name: "Paris", admin1: "Île-de-France", country: "France", timezone: "Europe/Paris" }, error: null };
+      sb.replies["readings.select"] = pages([{ source: "open-meteo", slot: "day", local_date: "2026-10-26", temperature_c: 12 }]);
+      await signedIn(w); win.location.hash = "#history/5/30d/avg"; await wait(200);
+    };
+    const SCREENS = [
+      ["Landing", w => signedOut(w), "landing"],
+      ["Sign in", async w => { await signedOut(w); doc.querySelector('#screen-landing [data-go="signin"]').click(); await wait(60); }, "signin"],
+      ["Your cities", w => signedIn(w), "shell"],
+      ["History", goHistory, "history"],
+      ["Settings", async w => { await signedIn(w); $("settings-open").click(); await wait(60); }, "settings"]
+    ];
+    for (const w of [400, 1280]) {
+      for (const [name, go, id] of SCREENS) {
+        await go(w);
+        const b = $("chat-open");
+        ok("2 " + name + " screen is shown at " + w, !$("screen-" + id).hidden);
+        ok("2 launcher named Ask Weather Insights is visible on " + name + " at " + w, visible(b) && b.getAttribute("aria-label") === "Ask Weather Insights");
+        win.scrollTo(0, 0);
+        const r0 = b.getBoundingClientRect();
+        win.scrollTo(0, 1e6); await wait(30);
+        const r = b.getBoundingClientRect(), cs = win.getComputedStyle(b);
+        ok("2 launcher is fixed, 56px, 16px from the bottom-right on " + name + " at " + w,
+          cs.position === "fixed" && r.width === 56 && r.height === 56 && Math.abs(win.innerWidth - r.right - 16) < 1 && Math.abs(win.innerHeight - r.bottom - 16) < 1 && r.top === r0.top,
+          JSON.stringify([cs.position, r.width, r.height, win.innerWidth - r.right, win.innerHeight - r.bottom]));
+        const over = [...doc.querySelectorAll("a[href], button, input, select, textarea, [tabindex='0']")]
+          .filter(e => e !== b && visible(e) && !e.closest("#chat-panel") && hit(e.getBoundingClientRect(), r)).map(e => e.id || e.textContent.trim().slice(0, 20));
+        ok("2 launcher covers no link or control after scrolling to the end of " + name + " at " + w, over.length === 0, over.join(", "));
+      }
+    }
+
+    // 3. Keyboard, desktop
+    await signedOut();
+    const b = $("chat-open");
+    const tabbable = [...doc.querySelectorAll("a[href], button, input, select, textarea, [tabindex='0']")].filter(e => !e.closest("#chat-panel") && visible(e) && !e.disabled);
+    const bi = tabbable.indexOf(b), fi = tabbable.indexOf(doc.querySelector(".footer a"));
+    ok("3 launcher is a Tab stop after the page content and before the footer links", bi > 0 && bi < fi && b.tabIndex === 0, bi + "," + fi);
+    eq("3 closed: aria-expanded false", b.getAttribute("aria-expanded"), "false");
+    ok("3 closed: panel hidden, aria-controls points to it", panel.hidden && b.getAttribute("aria-controls") === "chat-panel");
+    b.focus(); b.click(); await wait(80);
+    eq("3 open: aria-expanded true", b.getAttribute("aria-expanded"), "true");
+    ok("3 open: panel visible, focus in the Your question input", !panel.hidden && visible(panel) && doc.activeElement === $("chat-input"));
+    ok("3 desktop: no scrim, page not locked", $("chat-scrim").hidden && !doc.documentElement.classList.contains("chat-sheet-open") && !doc.querySelector("[inert]"));
+    key(doc.activeElement, "Escape");
+    ok("3 Escape closes and returns focus to the launcher", panel.hidden && doc.activeElement === b && b.getAttribute("aria-expanded") === "false");
+    key(doc.body, "Escape");
+    ok("3 Escape with the panel closed does nothing", panel.hidden && doc.activeElement === b);
+    b.click(); await wait(50); $("chat-close").click();
+    ok("3 Close button closes and returns focus to the launcher", panel.hidden && doc.activeElement === b);
+
+    // 4. Panel contents
+    await signedOut();
+    await openChat();
+    eq("4 title", norm($("chat-title").textContent), "Ask Weather Insights");
+    eq("4 panel is named by the title", panel.getAttribute("aria-labelledby"), "chat-title");
+    eq("4 Close button name", $("chat-close").getAttribute("aria-label"), "Close chat");
+    ok("4 message list is a role=log, aria-live=polite", log.getAttribute("role") === "log" && log.getAttribute("aria-live") === "polite");
+    const lab = doc.querySelector('label[for="chat-input"]');
+    ok("4 hidden label 'Your question'", lab && norm(lab.textContent) === "Your question" && lab.classList.contains("visually-hidden"));
+    ok("4 input placeholder and maxlength", $("chat-input").placeholder === "Ask a question" && $("chat-input").getAttribute("maxlength") === "500");
+    eq("4 Send button", norm($("chat-send").textContent), "Send");
+    eq("4 counter", countText(), "4 questions left today");
+    ok("4 AI note", norm(panel.textContent).includes("Answers are AI-generated and may be wrong."));
+    ok("4 provider line", norm(panel.textContent).includes("Powered by Cloudflare Workers AI · Built with Llama"));
+    ok("4 launcher is not in the footer, no provider line there", !norm(doc.querySelector(".footer").textContent).includes("Workers AI"));
+    eq("4 visitor greeting", bubbles().join("|"), "Assistant: Ask me about Weather Insights. Sign in to ask about your cities.");
+    eq("4 the status call is {messages: []}, made once on open", JSON.stringify(reqs()), JSON.stringify([{ messages: [] }]));
+    eq("4 the status call is made once, not again on reopen", (key(doc.activeElement, "Escape"), await openChat(), reqs().length), 1);
+    eq("4 status call went to the chat function with the anon key", mock.requests[0].headers.Authorization, "Bearer mock-anon-key");
+    await signedIn();
+    await openChat();
+    eq("4 signed-in greeting", bubbles()[0], "Assistant: Ask me about Weather Insights or your cities' history.");
+    eq("4 signed-in status call carries the access token", mock.requests.filter(r => r.url === CHAT).pop().headers.Authorization, "Bearer tok-1");
+    eq("4 the status call shows the count", countText(), "4 questions left today");
+
+    // 5. Send and reply
+    await signedOut();
+    status = { remaining: 4 };
+    let slow = true;
+    answer = () => (slow ? { reply: "<b>Hi</b>", remaining: 3 } : { reply: "ok", remaining: 3 });
+    await openChat();
+    eq("5 empty input does nothing", (type($("chat-input"), "   "), $("chat-send").click(), await wait(60), questions().length), 0);
+    await ask("  hello  ");
+    eq("5 user and reply bubbles after the greeting", bubbles().slice(1).join("|"), "You: hello|Assistant: <b>Hi</b>");
+    ok("5 the reply is literal text, no <b> element", !log.querySelector("b") && log.lastElementChild.textContent.endsWith("<b>Hi</b>"));
+    eq("5 counter after the reply", countText(), "3 questions left today");
+    eq("5 request is the trimmed question only", JSON.stringify(questions()[0].messages), JSON.stringify([{ role: "user", content: "hello" }]));
+    ok("5 the greeting is not sent", !JSON.stringify(questions()).includes("Ask me about"));
+    ok("5 input cleared and enabled, focus back in the input", $("chat-input").value === "" && !$("chat-input").disabled && !$("chat-send").disabled && doc.activeElement === $("chat-input"));
+    ok("5 each bubble starts with a hidden You: / Assistant: label", [...log.children].every(p => p.firstChild.classList.contains("visually-hidden")));
+    slow = false;
+    for (let i = 2; i <= 7; i++) await ask("q" + i);
+    const lastReq = questions().pop().messages;
+    ok("5 request has at most 10 messages", lastReq.length === 10, String(lastReq.length));
+    ok("5 request ends with the new user message", JSON.stringify(lastReq[9]) === JSON.stringify({ role: "user", content: "q7" }) && lastReq[8].role === "assistant");
+    ok("5 roles alternate, ending on the user message", lastReq.every((m, i) => m.role === (i % 2 ? "user" : "assistant")));
+    key(doc.activeElement, "Escape"); await openChat();
+    ok("5 closing and reopening keeps the conversation", bubbles().length === 1 + 2 * 7 && last().includes("ok"));
+    // Pending: one request at a time, Thinking... shows
+    const n = questions().length;
+    answer = () => ({ __never: true });
+    await ask("slow one", 60);
+    eq("5 Thinking... shows while pending", last(), "Assistant: Thinking…");
+    ok("5 input and Send disabled while pending", $("chat-input").disabled && $("chat-send").disabled);
+    $("chat-form").dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true })); await wait(30);
+    eq("5 a second submit while pending sends nothing", questions().length, n + 1);
+    // 7 (timeout). Thinking... stays until about 30 seconds, then the unavailable notice.
+    await wait(29000);
+    eq("5 Thinking... still shows at 29 seconds", last(), "Assistant: Thinking…");
+    await wait(2000);
+    eq("7 timeout shows the unavailable notice", last(), "Assistant: " + UNAVAIL);
+    ok("7 timeout: no Thinking... left, counter unchanged, input re-enabled", !bubbles().includes("Assistant: Thinking…") && countText() === "3 questions left today" && !$("chat-input").disabled && !$("chat-send").disabled);
+    eq("7 timeout: no uncaught error", mock.errors.join("|"), "");
+    answer = () => ({ reply: "back", remaining: 2 });
+    await ask("next");
+    const nm = questions().pop().messages;
+    ok("7 a failed question isn't sent again with the next one", nm[nm.length - 1].content === "next" && !nm.some(m => m.content === "slow one"));
+
+    // 6. Limit reached
+    await signedOut();
+    status = { remaining: 4 };
+    answer = () => http(429, { error: "limit", remaining: 0, resets_at: RESET });
+    await openChat();
+    await ask("one more");
+    const at = new Date(RESET).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    eq("6 limit message with the local reset time", last(), "Assistant: You've used today's 5 questions. You can ask again at " + at + ".");
+    ok("6 input and Send disabled", $("chat-input").disabled && $("chat-send").disabled);
+    eq("6 counter reads 0", countText(), "0 questions left today");
+    ok("6 the notice is styled as a notice", log.lastElementChild.classList.contains("chat-msg-notice"));
+    const n6 = questions().length;
+    $("chat-form").dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true })); await wait(30);
+    eq("6 nothing is sent while locked", questions().length, n6);
+    ok("6 no uncaught error", mock.errors.length === 0, mock.errors.join("|"));
+    // Limit on open (the status call says 0 left)
+    status = { remaining: 0, resets_at: RESET };
+    await signedOut(); await openChat();
+    ok("6 status call with 0 left locks the input and shows the limit message", $("chat-input").disabled && countText() === "0 questions left today" && last().includes("You've used today's 5 questions"));
+    // Busy
+    status = { remaining: 4 };
+    answer = () => http(429, { error: "busy", resets_at: RESET });
+    await signedOut(); await openChat(); await ask("hi");
+    eq("6 busy message", last(), "Assistant: The assistant is busy today, try again tomorrow.");
+    ok("6 busy: input and Send disabled, counter unchanged", $("chat-input").disabled && $("chat-send").disabled && countText() === "4 questions left today");
+    // Unlock after the reset time while the page is open
+    clock.now = Date.parse(RESET) - 2000;
+    answer = () => http(429, { error: "limit", remaining: 0, resets_at: RESET });
+    await signedOut(); await openChat(); await ask("hi");
+    answer = () => ({ reply: "ok", remaining: 4 });
+    ok("6 locked after the limit", $("chat-input").disabled);
+    await wait(3500);
+    ok("6 input and Send re-enable once the reset time passes", !$("chat-input").disabled && !$("chat-send").disabled);
+    clock.now = null;
+
+    // 7. Unavailable
+    status = { remaining: 4 };
+    for (const [name, reply] of [["502", http(502, { error: "unavailable", remaining: 4 })], ["503", http(503, { error: "unavailable" })], ["a network error", null], ["a non-JSON body", http(502, null)], ["an empty reply", { reply: "  ", remaining: 4 }]]) {
+      await signedOut();
+      answer = () => reply;
+      await openChat();
+      await ask("hi");
+      eq("7 " + name + " shows the unavailable notice", last(), "Assistant: " + UNAVAIL);
+      ok("7 " + name + ": counter unchanged, input and Send re-enabled", countText() === "4 questions left today" && !$("chat-input").disabled && !$("chat-send").disabled);
+      ok("7 " + name + ": no Thinking... left, focus back in the input", !bubbles().includes("Assistant: Thinking…") && doc.activeElement === $("chat-input"));
+      eq("7 " + name + ": no uncaught error", mock.errors.join("|"), "");
+      mock.errors.length = 0;
+    }
+
+    // The status call failing (function not deployed, or 404/500): the page and chat still work
+    for (const [name, st] of [["not deployed (network error)", null], ["404", http(404, { message: "not found" })], ["500", http(500, null)]]) {
+      await signedOut();
+      status = st; answer = () => ({ reply: "fine", remaining: 2 });
+      await openChat();
+      ok("7 status " + name + ": counter hidden, unavailable notice, input usable", $("chat-count").hidden && last() === "Assistant: " + UNAVAIL && !$("chat-input").disabled && !$("chat-send").disabled);
+      ok("7 status " + name + ": the rest of the page works", !$("screen-landing").hidden && !panel.hidden === true);
+      if (name.startsWith("404")) { await ask("still there?"); ok("7 status 404: a question still gets answered and the counter appears", last() === "Assistant: fine" && countText() === "2 questions left today"); }
+      eq("7 status " + name + ": no uncaught error", mock.errors.join("|"), "");
+      key(doc.activeElement, "Escape"); await openChat();
+      eq("7 status " + name + ": reopening doesn't repeat the notice", bubbles().filter(t => t === "Assistant: " + UNAVAIL).length, 1);
+    }
+
+    // Signing out clears the chat and the greeting updates
+    status = { remaining: 4 }; answer = () => ({ reply: "ok", remaining: 3 });
+    await signedIn(); await openChat(); await ask("mine");
+    ok("7 signed in: conversation has the question", bubbles().length === 3);
+    fireAuth("SIGNED_OUT", null); await wait(200);
+    eq("7 signing out clears the chat, the visitor greeting shows", bubbles().join("|"), "Assistant: Ask me about Weather Insights. Sign in to ask about your cities.");
+
+    // 12. Phone sheet at 400px
+    await signedOut(400);
+    status = { remaining: 4 }; answer = () => ({ reply: "W".repeat(300), remaining: 3 });
+    const de = doc.documentElement;
+    await openChat();
+    let pr = panel.getBoundingClientRect();
+    ok("12 sheet is full width, bottom-anchored", Math.abs(pr.width - de.clientWidth) < 1 && pr.left === 0 && Math.abs(pr.bottom - win.innerHeight) < 1, JSON.stringify([pr.left, pr.width, pr.bottom]));
+    ok("12 sheet is 85% of the viewport height", Math.abs(pr.height - win.innerHeight * 0.85) <= 2, pr.height + " of " + win.innerHeight);
+    ok("12 scrim shows and covers the viewport", visible($("chat-scrim")) && Math.abs($("chat-scrim").getBoundingClientRect().height - win.innerHeight) < 1);
+    ok("12 the page behind is inert (top bar, main content, footer, launcher), the panel is not",
+      ["#chat-open", ".topbar", ".footer", "main.app > section:not(.chat-panel):not([hidden])"].every(s => doc.querySelector(s) && doc.querySelector(s).hasAttribute("inert")) && !panel.hasAttribute("inert") && !panel.closest("[inert]"));
+    ok("12 the page doesn't scroll (html overflow hidden)", win.getComputedStyle(de).overflow === "hidden");
+    ok("12 focus is in the input", doc.activeElement === $("chat-input"));
+    await ask("long");
+    const bub = log.lastElementChild, lr = log.getBoundingClientRect(), br = bub.getBoundingClientRect();
+    ok("12 a 300-character word wraps inside the bubble", bub.textContent.includes("W".repeat(300)) && bub.scrollWidth <= bub.clientWidth + 1 && br.right <= lr.right + 0.5 && br.left >= lr.left - 0.5, JSON.stringify([bub.scrollWidth, bub.clientWidth, br.right, lr.right]));
+    ok("12 no sideways scroll with the sheet open and a long reply", de.scrollWidth <= de.clientWidth && log.scrollWidth <= log.clientWidth && panel.scrollWidth <= panel.clientWidth, [de.scrollWidth, de.clientWidth, log.scrollWidth, log.clientWidth].join(","));
+    ok("12 composer (input, Send) and counter inside the sheet at 400px", [$("chat-input"), $("chat-send"), $("chat-count")].every(e => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= 400.5 && r.bottom <= win.innerHeight; }));
+    key(doc.activeElement, "Escape");
+    ok("12 closing releases the scroll lock, inert and the scrim", panel.hidden && $("chat-scrim").hidden && !doc.querySelector("[inert]") && win.getComputedStyle(de).overflow !== "hidden" && !de.classList.contains("chat-sheet-open"));
+    ok("12 Escape on the phone returns focus to the launcher", doc.activeElement === $("chat-open"));
+    await openChat(); $("chat-scrim").click(); await wait(30);
+    ok("12 tapping the scrim closes the sheet and releases the lock", panel.hidden && !doc.querySelector("[inert]") && !de.classList.contains("chat-sheet-open"));
+    await openChat(); $("chat-close").click(); await wait(30);
+    ok("12 Close releases the lock too", panel.hidden && !doc.querySelector("[inert]") && doc.activeElement === $("chat-open"));
+    // Open at 1280, no sheet, and cross-check the desktop card size
+    await signedOut(1280); await openChat(); pr = panel.getBoundingClientRect();
+    ok("12 desktop card: 380px wide, at most 560px tall, above the launcher", Math.abs(pr.width - 380) <= 1 && pr.height <= 560.5 && pr.bottom <= $("chat-open").getBoundingClientRect().top, JSON.stringify([pr.width, pr.height]));
+
+    // 12. Tokens in :root and both dark blocks, no literal colour in the chat rules
+    const css = await text("style.css");
+    const block = sel => { const i = css.indexOf(sel); const o = css.indexOf("{", i), c = css.indexOf("}", o); return css.slice(o + 1, c); };
+    const TOK = { "--chat-bot-bg": ["#f5f5f7", "#2c2c2e"], "--scrim": ["rgba(0, 0, 0, 0.32)", "rgba(0, 0, 0, 0.6)"] };
+    for (const [name, sel, i] of [[":root", ":root {", 0], ["prefers-color-scheme dark", ':root:not([data-theme="light"])', 1], ['data-theme="dark"', ':root[data-theme="dark"]', 1]]) {
+      for (const t of Object.keys(TOK)) {
+        const m = block(sel).match(new RegExp(t + "\\s*:\\s*([^;]+);"));
+        eq("12 " + t + " in " + name, m && m[1].trim(), TOK[t][i]);
+      }
+    }
+    const chatCss = css.slice(css.indexOf("/* Chat assistant"), css.indexOf("/* Very narrow screens"));
+    ok("12 the chat rules use no literal colour", chatCss.length > 500 && !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(chatCss));
+    ok("12 the icons are CSS masks in tokens, with both mask forms", /background: var\(--on-accent\);\s*-webkit-mask: url\(assets\/chat\.svg\)/.test(chatCss) && /background: var\(--muted\);\s*-webkit-mask: url\(assets\/close\.svg\)/.test(chatCss));
+    for (const f of ["chat", "close"]) {
+      const s = await text("assets/" + f + ".svg");
+      ok("12 assets/" + f + ".svg is an original SVG with a viewBox, no script or external reference", /<svg[^>]+viewBox=/.test(s) && !/<script|https?:\/\/(?!www\.w3\.org)|href=/.test(s) && s.length < 1024);
+    }
+    ok("12 reduced motion turns the chat animations off (global reduce rule)", /prefers-reduced-motion: reduce\)\s*\{\s*\*, \*::before, \*::after \{[^}]*animation: none/.test(css) && /@media \(prefers-reduced-motion: no-preference\)[\s\S]*wx-chat-pop/.test(css));
+    ok("12 footer bottom padding clears the launcher at every width", (css.match(/\.footer-inner \{[^}]*padding: [^;]*calc\(104px \+ env\(safe-area-inset-bottom\)\)/g) || []).length === 2);
+
+    // 11. No Cloudflare API in the frontend
+    const html = await text("index.html");
+    const files = ["index.html", "style.css", ...[...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map(m => m[1]).filter(s => !/^https?:/.test(s)).map(s => s.replace(/\?.*$/, ""))];
+    for (const f of [...new Set(files)]) {
+      const src = await fetch("../" + f, { cache: "no-store" }).then(r => r.ok ? r.text() : null);
+      if (src === null) continue;
+      ok("11 " + f + " has no api.cloudflare.com and no Cloudflare token", !/api\.cloudflare\.com/i.test(src) && !/CF_API_TOKEN|CF_ACCOUNT_ID/.test(src));
+    }
+    ok("11 chat.js is loaded after common.js, and is one of the script tags", /common\.js[^>]*><\/script>[\s\S]*chat\.js/.test(html));
+    const chatJs = await text("chat.js");
+    ok("11 chat.js stores nothing and uses no innerHTML", !/localStorage|sessionStorage|indexedDB|innerHTML|insertAdjacentHTML/.test(chatJs));
+    ok("11 chat.js calls only the chat function", (chatJs.match(/\bfetch\(/g) || []).length === 1 && /functions\/v1\/chat/.test(chatJs) && !/https?:\/\//.test(chatJs.replace(/\/\/.*$/gm, "")));
+
+    // 1 (static) migration 0006
+    const mig = await text("supabase/migrations/0006_chat_usage.sql");
+    const sql = mig.replace(/--.*$/gm, "").toLowerCase();
+    const tbl = (sql.match(/create table public\.chat_usage \(([\s\S]*?)\n\);/) || [, ""])[1];
+    const cols = tbl.split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("primary key")).map(l => l.split(/\s+/)[0]);
+    eq("1 chat_usage columns are key, day, count only", cols.join(","), "key,day,count");
+    ok("1 primary key (key, day)", /primary key \(key, day\)/.test(tbl));
+    ok("1 RLS enabled and no policies", /alter table public\.chat_usage enable row level security/.test(sql) && !/create policy|alter policy/.test(sql));
+    ok("1 all table access revoked from public, anon, authenticated", /revoke all on public\.chat_usage from public, anon, authenticated/.test(sql) && !/grant [^;]*on (table )?public\.chat_usage/.test(sql));
+    eq("1 two functions", (sql.match(/create function public\.chat_(take|refund)\(/g) || []).length, 2);
+    eq("1 both functions are security definer with search_path set", (sql.match(/security definer set search_path = ''/g) || []).length, 2);
+    for (const f of ["chat_take(text, int, int, int)", "chat_refund(text, boolean)"]) {
+      const e = f.replace(/[()]/g, "\\$&");
+      ok("1 " + f.split("(")[0] + ": execute revoked from public, anon, authenticated and granted to service_role", new RegExp("revoke execute on function public\\." + e + " from public, anon, authenticated").test(sql) && new RegExp("grant execute on function public\\." + e + " to service_role").test(sql));
+    }
+    ok("1 execute is granted to service_role only", [...sql.matchAll(/grant execute on function [^;]+? to (\w+)/g)].every(m => m[1] === "service_role"));
+    ok("1 no IP, message or reply column anywhere in the migration", !/\b(ip|ip_address|message|messages|reply|content|prompt)\b\s+(text|jsonb?|inet|varchar)/.test(sql));
+    const fn = await text("supabase/functions/chat/index.ts"), lg = await text("supabase/functions/chat/logic.ts");
+
+    // 11 no console of message content (comments removed)
+    const code = s => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+    const idx = code(fn), lgc = code(lg);
+    ok("11 no console.log in index.ts or logic.ts", !/console\.log/.test(idx + lgc));
+    const cons = [...idx.matchAll(/console\.\w+\(([^\n]*)\)/g)].map(m => m[1]);
+    ok("11 index.ts console output is the header names line and the log hook only", cons.length === 2 && /ipHeaderNames/.test(cons[0]) && cons[1] === "...args", cons.join(" || "));
+    ok("11 logic.ts has no console call", !/console\./.test(lgc));
+    const logs = [...lgc.matchAll(/\blog\(([^\n]*)\)/g)].map(m => m[1]);
+    ok("11 logic.ts logs only fixed text, status, kind, duration and token counts", logs.length > 3 && logs.every(a => !/\b(messages?|content|reply|context|token|body|text|ip|user|key|req)\b(?!:)/i.test(a.replace(/"[^"]*"/g, ""))), logs.join(" || "));
+    ok("11 the secrets are read only through env()", !/CF_API_TOKEN\s*[,)]|["'`]CF_[A-Z_]+["'`]\s*\+/.test(lgc) && !/console/.test(lgc));
+    const svc = [...idx.matchAll(/admin\(\)\s*\.(?:from\("(\w+)"\)|rpc\("(\w+)")/g)].map(m => m[1] || m[2]);
+    eq("11 the service-role client touches only chat_usage, chat_take and chat_refund", [...new Set(svc)].sort().join(","), "chat_refund,chat_take,chat_usage");
+    ok("11 user data is read with the user-token client", /const db = asUser\(token\)/.test(idx) && !/admin\(\)\s*\.from\("(profiles|user_cities|readings|city_pictures)"/.test(idx));
+    ok("11 deno logic_test.ts exists (not run here: Deno isn't installed)", (await fetch("../supabase/functions/chat/logic_test.ts", { cache: "no-store" })).ok);
+  }
+
   // --- Runner ---
   const GROUPS = [["Page", page], ["Layout", layout], ["Accounts", accounts], ["Cities", cities],
-    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam], ["Load before migrations", beforeMigrations], ["Landing new features (0011)", landingNewFeatures]];
+    ["History regressions", historyRegressions], ["History", history], ["Notifications", notifications], ["Landing", landing], ["Cities and Settings redesign", redesign], ["History redesign", historyRedesign], ["City search autocomplete (0008)", typeahead], ["Satellite pictures (0009)", satellite], ["Live webcam (0010)", webcam], ["Load before migrations", beforeMigrations], ["Landing new features (0011)", landingNewFeatures], ["Chat assistant (0012)", chatAssistant]];
 
   async function run() {
     const saved = {};
@@ -2230,7 +2552,7 @@
         h.textContent = name;
         $log.appendChild(h);
         clearStore();
-        Object.assign(mock, { calls: [], requests: [], fetch: {}, search: null });
+        Object.assign(mock, { calls: [], requests: [], fetch: {}, search: null, http: { status: 200 } });
         resetSupabase();
         resetChart();
         clock = { now: null };
