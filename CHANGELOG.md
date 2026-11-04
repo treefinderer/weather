@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- Chat assistant: a chat button on every page opens "Ask Weather Insights", answered by a free Cloudflare Workers AI model. Visitors can ask about the site; signed-in users also about their own cities' history. 5 questions a day, nothing stored. ([spec 0012](docs/specs/0012-chat-assistant.md))
 - Landing page: new Satellite pictures and Live view sections with original illustrations and source credits, an updated hero subline, and a Windy credit in the footer. ([spec 0011](docs/specs/0011-landing-new-features.md))
 
 ## 2026-11-02
