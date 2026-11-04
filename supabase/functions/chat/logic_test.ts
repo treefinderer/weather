@@ -3,7 +3,7 @@
 // fetch and the database are always mocks: no test calls Cloudflare or Supabase.
 import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import {
-  aiBody, aiUrl, buildContext, chatModel, MODEL, clientIp, CONTEXT_CAP, handle, limitKey, MAX_TOKENS, nextReset, parseAi, SITE_FACTS, systemPrompt,
+  aiBody, aiUrl, buildContext, chatModel, MODEL, clientIp, ipHeaderNames, CONTEXT_CAP, handle, limitKey, MAX_TOKENS, nextReset, parseAi, SITE_FACTS, systemPrompt,
   type Take, type UserData, validate
 } from "./logic.ts";
 
@@ -87,9 +87,22 @@ Deno.test("limit key: user id, else 64-hex sha256(salt + IP); another salt gives
   assertNotEquals(a, b);
   assertEquals(await limitKey(null, "salt-a", null), await limitKey(null, "salt-a", "unknown"));
 });
-Deno.test("client IP is the first x-forwarded-for entry", () => {
-  assertEquals(clientIp(new Headers({ "x-forwarded-for": " 203.0.113.9, 10.0.0.1" })), "203.0.113.9");
+Deno.test("client IP: cf-connecting-ip first, else the LAST x-forwarded-for entry, else none", () => {
+  assertEquals(clientIp(new Headers({ "cf-connecting-ip": " 203.0.113.9 ", "x-forwarded-for": "1.1.1.1, 10.0.0.1" })), "203.0.113.9");
+  assertEquals(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" })), "203.0.113.9");
+  assertEquals(clientIp(new Headers({ "x-forwarded-for": " 198.51.100.1, 203.0.113.9 , " })), "203.0.113.9");
+  assertEquals(clientIp(new Headers({ "x-forwarded-for": " , " })), null);
   assertEquals(clientIp(new Headers()), null);
+});
+Deno.test("a spoofed first x-forwarded-for entry doesn't change the visitor key", async () => {
+  const key = (xff: string) => limitKey(null, "salt", clientIp(new Headers({ "x-forwarded-for": xff })));
+  assertEquals(await key("6.6.6.1, 203.0.113.9"), await key("6.6.6.2, 203.0.113.9"));
+  assertEquals(await key("6.6.6.1, 203.0.113.9"), await key("203.0.113.9"));
+});
+Deno.test("ipHeaderNames lists only names, never values", () => {
+  const names = ipHeaderNames(new Headers({ "x-forwarded-for": "203.0.113.9", "x-real-ip": "203.0.113.9", "user-agent": "x" }));
+  assertEquals(names, ["x-forwarded-for", "x-real-ip"]);
+  assertEquals(ipHeaderNames(new Headers()), []);
 });
 
 // --- Workers AI shapes ---
@@ -112,23 +125,29 @@ Deno.test("Workers AI reply: result.response and usage; empty or error envelopes
 
 type Reply = unknown | Error | { status: number };
 
-// An in-memory chat_usage with the same rules as chat_take / chat_refund.
+// An in-memory chat_usage with the same rules as chat_take / chat_refund. globalLimit overrides the limit handle
+// passes, so a test can reach the cap quickly. takes records every visitorLimit handle passed.
 function fakeDb(globalLimit = 400) {
   const rows = new Map<string, number>();
+  const takes: (number | null)[] = [];
+  const dec = (k: string) => rows.set(k, Math.max(0, (rows.get(k) || 0) - 1));
   return {
-    rows,
+    rows, takes,
     used: (key: string) => Promise.resolve(rows.get(key) || 0),
-    take(key: string, limit: number, g: number): Promise<Take> {
-      const k = rows.get(key) || 0, gl = rows.get("global") || 0;
+    take(key: string, limit: number, g: number, visitorLimit: number | null): Promise<Take> {
+      takes.push(visitorLimit);
+      const k = rows.get(key) || 0, gl = rows.get("global") || 0, v = rows.get("visitors") || 0;
       if (k >= limit) return Promise.resolve({ ok: false, used: k, hit: "limit" });
-      if (gl >= Math.min(g, globalLimit)) return Promise.resolve({ ok: false, used: k, hit: "busy" });
+      if (gl >= Math.min(g, globalLimit) || (visitorLimit !== null && v >= visitorLimit)) return Promise.resolve({ ok: false, used: k, hit: "busy" });
       rows.set("global", gl + 1);
+      if (visitorLimit !== null) rows.set("visitors", v + 1);
       rows.set(key, k + 1);
       return Promise.resolve({ ok: true, used: k + 1, hit: null });
     },
-    refund(key: string) {
-      rows.set("global", Math.max(0, (rows.get("global") || 0) - 1));
-      rows.set(key, Math.max(0, (rows.get(key) || 0) - 1));
+    refund(key: string, visitor: boolean) {
+      dec("global");
+      if (visitor) dec("visitors");
+      dec(key);
       return Promise.resolve(rows.get(key)!);
     }
   };
@@ -192,6 +211,7 @@ Deno.test("a Workers AI 5xx, 429, network error or empty reply returns 502 and r
     assertEquals(r.body, { error: "unavailable", remaining: 4 });
     assertEquals((await db.used(await limitKey(null, ENV.CHAT_SALT, "198.51.100.7"))), 1);
     assertEquals(db.rows.get("global"), 1);
+    assertEquals(db.rows.get("visitors"), 1);
   }
 });
 Deno.test("reaching the global cap returns 429 busy", async () => {
@@ -203,6 +223,27 @@ Deno.test("reaching the global cap returns 429 busy", async () => {
   assertEquals(r.body.error, "busy");
   assertEquals(r.calls.length, 0);
 });
+Deno.test("visitor sub-cap: visitors get busy, signed-in users still get answers up to the global cap", async () => {
+  const db = fakeDb();
+  const env = { ...ENV, CHAT_VISITOR_DAILY_LIMIT: "2" };
+  await run(ask("a"), { db, env, ip: "192.0.2.1" });
+  await run(ask("b"), { db, env, ip: "192.0.2.2" });
+  const v = await run(ask("c"), { db, env, ip: "192.0.2.3" });
+  assertEquals(v.res.status, 429);
+  assertEquals(v.body.error, "busy");
+  assertEquals(v.calls.length, 0);
+  const u = await run(ask("mine?"), { db, env, token: USER_TOKEN });
+  assertEquals(u.res.status, 200);
+  assertEquals(db.rows.get("visitors"), 2);
+  assertEquals(db.rows.get("global"), 3);
+  assertEquals(db.takes, [2, 2, 2, null]);
+});
+Deno.test("visitor sub-cap defaults to 150", async () => {
+  const db = fakeDb();
+  await run(ask("a"), { db });
+  assertEquals(db.takes, [150]);
+});
+
 Deno.test("the status call makes no Workers AI call and doesn't change the count", async () => {
   const db = fakeDb();
   await run(ask("a"), { db });

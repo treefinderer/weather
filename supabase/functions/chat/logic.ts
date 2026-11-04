@@ -15,6 +15,8 @@ export const aiUrl = (accountId: string, model = MODEL) =>
   "https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(accountId) + "/ai/run/" + model;
 export const DAILY_LIMIT = 5;              // questions per user id or visitor key per UTC day (owner, 2026-11-03)
 export const GLOBAL_DEFAULT = 400;         // CHAT_GLOBAL_DAILY_LIMIT when unset (orchestrator default, spec 0012)
+export const VISITOR_DEFAULT = 150;        // CHAT_VISITOR_DAILY_LIMIT when unset: visitors' share of the global cap
+export const CLEANUP_EVERY_MS = 3600 * 1000; // index.ts runs the chat_usage cleanup at most this often per instance
 export const MAX_USER_CHARS = 500;
 export const MAX_ASSISTANT_CHARS = 2000;
 export const MAX_MESSAGES = 10;            // turns kept, ending with the new user message
@@ -66,11 +68,18 @@ export function bearer(headers: Headers): string {
   return m ? m[1].trim() : "";
 }
 
-// The client address Supabase passes on: the first entry of x-forwarded-for, or null.
+// The client address, from headers the platform sets rather than the caller: cf-connecting-ip when present, else the
+// LAST x-forwarded-for entry (the one the nearest proxy appended; earlier entries can be sent by the caller), else null.
 export function clientIp(headers: Headers): string | null {
-  const first = (headers.get("x-forwarded-for") || "").split(",")[0].trim();
-  return first || null;
+  const cf = (headers.get("cf-connecting-ip") || "").trim();
+  if (cf) return cf;
+  const hops = (headers.get("x-forwarded-for") || "").split(",").map(s => s.trim()).filter(Boolean);
+  return hops.length ? hops[hops.length - 1] : null;
 }
+
+// The names (never the values) of the IP-related headers on a request, for a one-time log line after deploy.
+export const IP_HEADERS = ["cf-connecting-ip", "x-forwarded-for", "x-real-ip"];
+export const ipHeaderNames = (headers: Headers): string[] => IP_HEADERS.filter(h => headers.has(h));
 
 export async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -318,9 +327,10 @@ export interface Deps {
   getUser(token: string): Promise<{ id: string } | null>;       // null for an invalid or expired token
   loadUserData(token: string, userId: string): Promise<UserData>; // user-JWT client, so RLS applies; throws on failure
   used(key: string): Promise<number>;                           // today's count, no change (status call)
-  take(key: string, limit: number, globalLimit: number): Promise<Take>;
-  refund(key: string): Promise<number>;                         // the key's count after giving one back
-  cleanup(): Promise<void>;                                     // deletes rows older than KEEP_DAYS
+  // visitorLimit is null for a signed-in user; for a visitor the 'visitors' counter must also be under it.
+  take(key: string, limit: number, globalLimit: number, visitorLimit: number | null): Promise<Take>;
+  refund(key: string, visitor: boolean): Promise<number>;       // the key's count after giving one back
+  cleanup(): Promise<void>;                                     // deletes rows older than KEEP_DAYS (index.ts throttles it)
   now?: () => Date;
   log?: (...args: unknown[]) => void;
 }
@@ -343,6 +353,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     return json({ error: "unavailable" }, 503);
   }
   const globalLimit = Math.max(1, Math.floor(Number(deps.env("CHAT_GLOBAL_DAILY_LIMIT")) || GLOBAL_DEFAULT));
+  const visitorLimit = Math.max(1, Math.floor(Number(deps.env("CHAT_VISITOR_DAILY_LIMIT")) || VISITOR_DEFAULT));
 
   let body: Json;
   try {
@@ -376,7 +387,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
 
   let take: Take;
   try {
-    take = await deps.take(key, DAILY_LIMIT, globalLimit);
+    take = await deps.take(key, DAILY_LIMIT, globalLimit, user ? null : visitorLimit);
   } catch {
     log("chat: chat_take failed");
     return json({ error: "unavailable" }, 502);
@@ -400,7 +411,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   } catch (e) {
     log("chat: workers ai failed", { kind: aiErrorKind(e), ms: Date.now() - started });
     let used = take.used - 1;
-    try { used = await deps.refund(key); } catch { log("chat: chat_refund failed"); }
+    try { used = await deps.refund(key, !user); } catch { log("chat: chat_refund failed"); }
     return json({ error: "unavailable", remaining: Math.max(0, DAILY_LIMIT - used) }, 502);
   }
 

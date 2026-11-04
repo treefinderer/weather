@@ -508,8 +508,13 @@ Edge Functions → Secrets (on some dashboards: Project Settings → Edge Functi
 - `CF_API_TOKEN`: the token from step 3
 - `CHAT_SALT`: the value from step 4
 
-Optional: `CHAT_GLOBAL_DAILY_LIMIT`, the site-wide questions per UTC day (default 400, see "Neuron budget" below), and
-`CHAT_MODEL` (see step 8.4).
+Optional:
+
+- `CHAT_GLOBAL_DAILY_LIMIT`: the site-wide questions per UTC day (default 400, see "Neuron budget" below).
+- `CHAT_VISITOR_DAILY_LIMIT`: how many of those visitors who aren't signed in may use per UTC day (default 150). Once it
+  is reached, visitors see "The assistant is busy today", while signed-in users keep asking up to the global cap, so a
+  flood of anonymous questions can't lock everyone out.
+- `CHAT_MODEL`: see step 8.5.
 
 If any of the three is missing, the function replies 503 `{"error":"unavailable"}` and counts nothing.
 
@@ -548,17 +553,22 @@ creates `chat_usage` (key, UTC day, count; no IP, message or reply column) with 
    appears and the counter drops to "4 questions left today". Sign in and ask about one of your cities. "The assistant
    is unavailable right now" usually means the token or Account ID is wrong: check the function's logs (they show only
    status codes, error kinds and token counts, never messages or IPs).
-4. **Optional, if the model is retired:** if the first test call fails with a model error (the function's logs show
+4. **Client IP header** (the visitor limit depends on it). Edge Functions → `chat` → Logs. After the first call since
+   the deploy, find the line `chat: ip headers present: ...`. It lists header names only, never addresses. It should
+   include `cf-connecting-ip` or `x-forwarded-for`. If it says `none`, every visitor shares one daily limit; tell the
+   orchestrator. (The function uses `cf-connecting-ip` when present, else the last `x-forwarded-for` entry, the one the
+   platform's proxy adds, because earlier entries can be set by the caller.)
+5. **Optional, if the model is retired:** if the first test call fails with a model error (the function's logs show
    `HTTP 4xx` for the Workers AI call, and the app says "unavailable"), add the secret
    `CHAT_MODEL` = `@cf/meta/llama-3.1-8b-instruct-fp8` (or another model from the Workers AI catalog,
    https://developers.cloudflare.com/workers-ai/models/) in Edge Functions → Secrets, and retest. No redeploy or code
    change is needed. An unset or malformed value falls back to `@cf/meta/llama-3.1-8b-instruct-fp8-fast`.
-5. **No access for users** (in the SQL Editor, should fail with "permission denied"):
+6. **No access for users** (in the SQL Editor, should fail with "permission denied"):
    ```sql
    set role authenticated; select * from public.chat_usage; reset role;
    ```
-6. **Counts:** `select * from chat_usage order by day desc, key;` shows one row per user id or hashed visitor plus a
-   `global` row. Rows older than 7 days are deleted after each reply.
+7. **Counts:** `select * from chat_usage order by day desc, key;` shows one row per user id or hashed visitor, plus a
+   `global` row and a `visitors` row. Rows older than 7 days are deleted (at most once an hour, after a reply).
 
 ### Chat unit tests (run by hand)
 
