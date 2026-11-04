@@ -461,3 +461,127 @@ deno test --allow-read supabase/functions/webcams/logic_test.ts
 
 About one Windy request per followed city per week, plus retries after failures (at most one per city per hour,
 backing off to one a day). Each run looks up at most 10 cities.
+
+## Spec 0012: chat assistant (owner checklist)
+
+The `chat` function answers questions from the chat button through Cloudflare Workers AI
+(`@cf/meta/llama-3.1-8b-instruct-fp8-fast`, free tier only). It needs three new Edge Function secrets and the 0006
+migration. Until all of them exist and the function is deployed, the chat panel just says the assistant is
+unavailable; the rest of the site is unaffected.
+
+Do these once, after the 0012 branch is merged. Replace `<project-ref>` as in the 0002 steps. Never paste the
+Account ID, the API token or the salt in chat, an issue, a commit or any file in the repo.
+
+### 1. Create a free Cloudflare account
+
+Sign up at https://dash.cloudflare.com/sign-up (the free Workers plan is enough; no card is needed). Don't upgrade to
+Workers Paid: on the free plan, requests past the 10,000 neurons a day just fail, and nothing is charged.
+
+### 2. Find the Account ID
+
+Dashboard → **Workers AI** → **Use REST API**. Copy the **Account ID** shown there (it is also on the account home
+page, under the account name). Keep it for step 5.
+
+### 3. Create an API token
+
+On the same **Use REST API** page, click **Create a Workers AI API Token**, review it and click **Create API Token**,
+then **Copy API Token**. If you create a custom token instead (My Profile → API Tokens), give it exactly two
+permissions: **Workers AI – Read** and **Workers AI – Edit**, for this account only. The token is shown once; keep it
+for step 5.
+
+### 4. Generate the salt
+
+In Terminal:
+
+```sh
+openssl rand -hex 32
+```
+
+It prints 64 hex characters. This is `CHAT_SALT`: visitors' daily limits use a SHA-256 of the salt plus their IP, so
+no IP is stored. Changing the salt later just resets visitors' counts for the day.
+
+### 5. Edge Function secrets
+
+Edge Functions → Secrets (on some dashboards: Project Settings → Edge Functions → Secrets). Add, in the dashboard:
+
+- `CF_ACCOUNT_ID`: the Account ID from step 2
+- `CF_API_TOKEN`: the token from step 3
+- `CHAT_SALT`: the value from step 4
+
+Optional:
+
+- `CHAT_GLOBAL_DAILY_LIMIT`: the site-wide questions per UTC day (default 400, see "Neuron budget" below).
+- `CHAT_VISITOR_DAILY_LIMIT`: how many of those visitors who aren't signed in may use per UTC day (default 150). Once it
+  is reached, visitors see "The assistant is busy today", while signed-in users keep asking up to the global cap, so a
+  flood of anonymous questions can't lock everyone out.
+- `CHAT_MODEL`: see step 8.5.
+
+If any of the three is missing, the function replies 503 `{"error":"unavailable"}` and counts nothing.
+
+### 6. Run the migration
+
+SQL Editor → New query. Paste the whole contents of `supabase/migrations/0006_chat_usage.sql` and click Run. It
+creates `chat_usage` (key, UTC day, count; no IP, message or reply column) with RLS on and no policies, and the
+`chat_take` / `chat_refund` functions, which only the service role may run.
+
+### 7. Deploy the chat function
+
+**Dashboard:** Edge Functions → Deploy a new function → Via Editor.
+
+1. Name it `chat` (exactly, because the page calls `/functions/v1/chat`).
+2. Replace the sample `index.ts` with the contents of `supabase/functions/chat/index.ts`.
+3. Add a file named `logic.ts` with the contents of `supabase/functions/chat/logic.ts`. Leave out `logic_test.ts` and
+   `fixtures/`.
+4. Click Deploy function.
+5. Open the function → Details. Turn **off** "Enforce JWT verification" and save. Visitors call it without signing in;
+   the function checks a signed-in user's token itself.
+
+**CLI alternative:** `npx supabase functions deploy chat --no-verify-jwt --project-ref <project-ref> --use-api`
+
+### 8. Check it works
+
+1. **Status call** (counts nothing, calls no AI; should print `{"remaining":5,"resets_at":"..."}`):
+   ```sh
+   curl -s -X POST -H 'Content-Type: application/json' -d '{"messages":[]}' https://<project-ref>.supabase.co/functions/v1/chat
+   ```
+   `{"error":"unavailable"}` with HTTP 503 means a secret from step 5 is missing.
+2. **Bad request** (should print `{"error":"bad_request"}`):
+   ```sh
+   curl -s -X POST -H 'Content-Type: application/json' -d '{"messages":[{"role":"system","content":"x"}]}' https://<project-ref>.supabase.co/functions/v1/chat
+   ```
+3. **The app.** Open the site, click the round button at the bottom right, and ask "What does this site do?". A reply
+   appears and the counter drops to "4 questions left today". Sign in and ask about one of your cities. "The assistant
+   is unavailable right now" usually means the token or Account ID is wrong: check the function's logs (they show only
+   status codes, error kinds and token counts, never messages or IPs).
+4. **Client IP header** (the visitor limit depends on it). Edge Functions → `chat` → Logs. After the first call since
+   the deploy, find the line `chat: ip headers present: ...`. It lists header names only, never addresses. It should
+   include `cf-connecting-ip` or `x-forwarded-for`. If it says `none`, every visitor shares one daily limit; tell the
+   orchestrator. (The function uses `cf-connecting-ip` when present, else the last `x-forwarded-for` entry, the one the
+   platform's proxy adds, because earlier entries can be set by the caller.)
+5. **Optional, if the model is retired:** if the first test call fails with a model error (the function's logs show
+   `HTTP 4xx` for the Workers AI call, and the app says "unavailable"), add the secret
+   `CHAT_MODEL` = `@cf/meta/llama-3.1-8b-instruct-fp8` (or another model from the Workers AI catalog,
+   https://developers.cloudflare.com/workers-ai/models/) in Edge Functions → Secrets, and retest. No redeploy or code
+   change is needed. An unset or malformed value falls back to `@cf/meta/llama-3.1-8b-instruct-fp8-fast`.
+6. **No access for users** (in the SQL Editor, should fail with "permission denied"):
+   ```sql
+   set role authenticated; select * from public.chat_usage; reset role;
+   ```
+7. **Counts:** `select * from chat_usage order by day desc, key;` shows one row per user id or hashed visitor, plus a
+   `global` row and a `visitors` row. Rows older than 7 days are deleted (at most once an hour, after a reply).
+
+### Chat unit tests (run by hand)
+
+They need [Deno](https://deno.com) (`brew install deno`) and aren't part of `tests/run.sh`. No test calls Cloudflare:
+
+```sh
+deno test --allow-read supabase/functions/chat/logic_test.ts
+```
+
+### Neuron budget
+
+The free allowance is 10,000 neurons per UTC day. Cloudflare's pricing page lists this model at 4,119 neurons per
+million input tokens and 34,868 per million output tokens. A signed-in question with the full ~6,000-character data
+block is roughly 2,000 input tokens and up to 300 output tokens, so about 8 to 19 neurons; a visitor question is less.
+The function logs `prompt_tokens`, `completion_tokens` and an estimated `neurons_est` for each call, so you can tune
+`CHAT_GLOBAL_DAILY_LIMIT` from real numbers. Past the allowance, questions fail with "unavailable" and are refunded.
