@@ -3,7 +3,7 @@
 // fetch and the database are always mocks: no test calls Cloudflare or Supabase.
 import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import {
-  aiBody, aiUrl, buildContext, clientIp, CONTEXT_CAP, handle, limitKey, MAX_TOKENS, nextReset, parseAi, SITE_FACTS, systemPrompt,
+  aiBody, aiUrl, buildContext, chatModel, MODEL, clientIp, CONTEXT_CAP, handle, limitKey, MAX_TOKENS, nextReset, parseAi, SITE_FACTS, systemPrompt,
   type Take, type UserData, validate
 } from "./logic.ts";
 
@@ -135,7 +135,7 @@ function fakeDb(globalLimit = 400) {
 }
 
 async function run(body: unknown, opts: { replies?: Reply[]; db?: ReturnType<typeof fakeDb>; token?: string; env?: Record<string, string>;
-  ip?: string; method?: string } = {}) {
+  ip?: string; method?: string; model?: string } = {}) {
   const db = opts.db || fakeDb();
   const replies = opts.replies || [fixture("workers-ai-ok.json")];
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -155,7 +155,7 @@ async function run(body: unknown, opts: { replies?: Reply[]; db?: ReturnType<typ
   const req = new Request("http://localhost/chat", { method: opts.method || "POST", headers, body: opts.method && opts.method !== "POST" ? undefined : JSON.stringify(body) });
   const env = opts.env || ENV;
   const res = await handle(req, {
-    env: (n) => env[n], fetch: fetchFn, now: () => NOW,
+    env: (n) => env[n], fetch: fetchFn, now: () => NOW, model: opts.model,
     getUser: (t) => Promise.resolve(t === USER_TOKEN ? { id: USER_ID } : null),
     loadUserData: () => { loads++; return Promise.resolve(fixture("user-data.json")); },
     used: db.used, take: db.take, refund: db.refund, cleanup: () => Promise.resolve(),
@@ -245,6 +245,20 @@ Deno.test("logs never contain the question, the reply, the context, the token or
   const all = r.logs.join("\n");
   for (const s of ["my secret question", "Zurich", USER_TOKEN, ENV.CF_API_TOKEN, "203.0.113.77"]) assert(!all.includes(s), s);
 });
+Deno.test("CHAT_MODEL: a valid name is used, unset or invalid falls back to the default", async () => {
+  assertEquals(chatModel(undefined), MODEL);
+  assertEquals(chatModel(""), MODEL);
+  assertEquals(chatModel(" @cf/meta/llama-3.1-8b-instruct-fp8 "), "@cf/meta/llama-3.1-8b-instruct-fp8");
+  assertEquals(chatModel("@hf/some-org/model_v1.2"), "@hf/some-org/model_v1.2");
+  for (const bad of ["cf/meta/x", "@cf/meta/x?y=1", "@cf/../../accounts", "https://evil.example/@cf/x", "@xx/meta/x"]) {
+    assertEquals(chatModel(bad), MODEL, bad);
+  }
+  const custom = await run(ask("hi"), { model: "@cf/meta/llama-3.1-8b-instruct-fp8" });
+  assertEquals(custom.calls[0].url, aiUrl(ENV.CF_ACCOUNT_ID, "@cf/meta/llama-3.1-8b-instruct-fp8"));
+  const fallback = await run(ask("hi"), { model: "not a model" });
+  assertEquals(fallback.calls[0].url, aiUrl(ENV.CF_ACCOUNT_ID, MODEL));
+});
+
 Deno.test("nextReset is the next 00:00 UTC", () => {
   assertEquals(nextReset(new Date("2026-12-31T23:59:59Z")), "2027-01-01T00:00:00.000Z");
 });

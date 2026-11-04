@@ -2,7 +2,8 @@
 // visitors call it with the anon key, signed-in users with their access token. Answers short questions about the site
 // and, for a signed-in user, about their own cities' history, through Cloudflare Workers AI. 5 questions per user id
 // or salted IP hash per UTC day, plus a global cap. No conversation is stored.
-// CF_ACCOUNT_ID, CF_API_TOKEN and CHAT_SALT exist only as Edge Function secrets; CHAT_GLOBAL_DAILY_LIMIT is optional.
+// CF_ACCOUNT_ID, CF_API_TOKEN and CHAT_SALT exist only as Edge Function secrets; CHAT_GLOBAL_DAILY_LIMIT and
+// CHAT_MODEL (a Workers AI model name, used instead of the default in logic.ts) are optional.
 // The user's data is read with a client carrying the user's token, so RLS applies. The service role is used only for
 // public.chat_usage (chat_take, chat_refund, today's count for the status call, and the cleanup).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -28,6 +29,7 @@ function must<T>(res: { data: T; error: { message: string } | null }): T {
 Deno.serve((req) => handle(req, {
   env: (name) => Deno.env.get(name),
   fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(AI_TIMEOUT_MS) }),
+  model: Deno.env.get("CHAT_MODEL"),
 
   async getUser(token) {
     const res = await asUser(token).auth.getUser(token);

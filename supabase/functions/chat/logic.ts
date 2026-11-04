@@ -3,9 +3,16 @@
 // or database access of its own: index.ts passes in fetch, the user lookups and the chat_usage calls, so logic_test.ts
 // can drive every case with fixtures and mocks. Nothing here logs message contents, replies, context, tokens or IPs.
 
-export const MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
-export const aiUrl = (accountId: string) =>
-  "https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(accountId) + "/ai/run/" + MODEL;
+export const MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";  // default; CHAT_MODEL overrides it
+const MODEL_PATTERN = /^@(cf|hf)\/[\w.\-/]+$/;
+// The model to call: CHAT_MODEL when it looks like a Workers AI model name, else the default. ".." is refused so the
+// name can't step out of /ai/run/ in the URL.
+export const chatModel = (value: string | undefined | null): string => {
+  const v = (value || "").trim();
+  return MODEL_PATTERN.test(v) && !v.includes("..") ? v : MODEL;
+};
+export const aiUrl = (accountId: string, model = MODEL) =>
+  "https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(accountId) + "/ai/run/" + model;
 export const DAILY_LIMIT = 5;              // questions per user id or visitor key per UTC day (owner, 2026-11-03)
 export const GLOBAL_DEFAULT = 400;         // CHAT_GLOBAL_DAILY_LIMIT when unset (orchestrator default, spec 0012)
 export const MAX_USER_CHARS = 500;
@@ -266,8 +273,8 @@ export function aiErrorKind(e: unknown): string {
 
 // One Workers AI call. Throws on a network error, the timeout (index.ts adds it to fetch), a non-2xx status (the
 // daily allowance running out included) or an empty or unparseable reply. The token goes only in the header.
-export async function callAi(fetchFn: typeof fetch, accountId: string, token: string, system: string, messages: Message[]) {
-  const res = await fetchFn(aiUrl(accountId), {
+export async function callAi(fetchFn: typeof fetch, accountId: string, token: string, system: string, messages: Message[], model = MODEL) {
+  const res = await fetchFn(aiUrl(accountId, model), {
     method: "POST",
     headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
     body: JSON.stringify(aiBody(system, messages))
@@ -307,6 +314,7 @@ export interface Take { ok: boolean; used: number; hit: "limit" | "busy" | null 
 export interface Deps {
   env(name: string): string | undefined;
   fetch: typeof fetch;                                          // index.ts adds the AI_TIMEOUT_MS timeout
+  model?: string;                                               // the CHAT_MODEL env, checked by chatModel
   getUser(token: string): Promise<{ id: string } | null>;       // null for an invalid or expired token
   loadUserData(token: string, userId: string): Promise<UserData>; // user-JWT client, so RLS applies; throws on failure
   used(key: string): Promise<number>;                           // today's count, no change (status call)
@@ -386,7 +394,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
 
   let reply: string;
   try {
-    const out = await callAi(deps.fetch, accountId, cfToken, system, valid.messages);
+    const out = await callAi(deps.fetch, accountId, cfToken, system, valid.messages, chatModel(deps.model));
     reply = out.reply;
     log("chat: ok", { ms: Date.now() - started, ...(out.usage ? { ...out.usage, neurons_est: neurons(out.usage) } : {}) });
   } catch (e) {
