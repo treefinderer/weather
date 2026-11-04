@@ -478,6 +478,29 @@
       <button type="submit" class="btn" id="password-submit">Change password</button>
     </form>
   </section>
+
+  <!-- Chat assistant (spec 0012): the launcher, then the panel, so Tab reaches them after the page and before the footer -->
+  <button type="button" class="chat-launcher" id="chat-open" aria-label="Ask Weather Insights" aria-expanded="false" aria-controls="chat-panel"></button>
+  <div class="chat-scrim" id="chat-scrim" hidden></div>
+  <section class="chat-panel" id="chat-panel" aria-labelledby="chat-title" hidden>
+    <div class="chat-head">
+      <h2 class="chat-title" id="chat-title">Ask Weather Insights</h2>
+      <button type="button" class="chat-close" id="chat-close" aria-label="Close chat"></button>
+    </div>
+    <div class="chat-log" id="chat-log" role="log" aria-live="polite" aria-label="Conversation" tabindex="0"></div>
+    <form class="chat-form" id="chat-form" novalidate>
+      <label class="visually-hidden" for="chat-input">Your question</label>
+      <div class="chat-row">
+        <input id="chat-input" type="text" maxlength="500" placeholder="Ask a question" autocomplete="off" enterkeyhint="send">
+        <button type="submit" class="chat-send" id="chat-send">Send</button>
+      </div>
+      <div class="chat-meta">
+        <p class="chat-count" id="chat-count">…</p>
+        <p class="chat-note">Answers are AI-generated and may be wrong.</p>
+        <p class="chat-credit">Powered by Cloudflare Workers AI · Built with Llama</p>
+      </div>
+    </form>
+  </section>
 </main>
 <footer class="footer">
   <div class="footer-inner">
@@ -496,5 +519,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <script src="history.js?v=2026110301"></script>
 <script src="notifications.js?v=2026110301"></script>
+<script src="chat.js?v=2026110301"></script>
 </body>
 </html>

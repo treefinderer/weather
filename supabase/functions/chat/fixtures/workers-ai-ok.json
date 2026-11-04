@@ -1,0 +1,9 @@
+{
+  "result": {
+    "response": "Zurich was mild this week: about 9°C at 12pm on most days, with rain on Oct 30.",
+    "usage": { "prompt_tokens": 1520, "completion_tokens": 28, "total_tokens": 1548 }
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+}

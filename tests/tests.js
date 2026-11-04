@@ -1061,7 +1061,7 @@
     ok("12 --font ends in a generic family", /,\s*(sans-serif|system-ui)\s*$/.test(font.trim()) && /system-ui|-apple-system|Segoe UI/.test(font), font);
     ok("12 reduced-motion rule removes animations and transitions", /prefers-reduced-motion:\s*reduce[\s\S]*?(animation|transition)[^;]*(none|0(\.\d+)?s|0\.01ms)/.test(css));
     const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:").replace(/\?v=\d+$/, ""));
-    eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,webcam.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+    eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,webcam.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js,chat.js");
     const local = [...html.matchAll(/<(?:script[^>]*\ssrc|link[^>]+rel="stylesheet"[^>]*\shref)="([^"]+)"/g)].map(m => m[1]).filter(u => !/^https?:/.test(u));
     const vers = local.map(u => (u.match(/\?v=(\d{10})$/) || [])[1]);
     ok("12 every local script and stylesheet has the same ?v= cache-busting query", local.length >= 7 && vers.every(v => v && v === vers[0]), local.join(","));
@@ -1218,7 +1218,7 @@
       ok("12 --seg-track and --seg-hover in " + name, /--seg-track\s*:/.test(b) && /--seg-hover\s*:/.test(b));
     }
     const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:").replace(/\?v=\d+$/, ""));
-    eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,webcam.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+    eq("12 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,webcam.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js,chat.js");
   }
 
   // History redesign (spec 0007, criteria 2-11; 1 is the suite itself, 12 dark-mode looks are manual)
@@ -1394,7 +1394,7 @@
     const undef = used.filter(n => !new RegExp(n + "\\s*:").test(block(":root {")));
     ok("12 every var() used is defined in :root", undef.length === 0, undef.join(","));
     const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1].replace(/^https:\/\/cdn\.jsdelivr\.net\/npm\//, "cdn:").replace(/\?v=\d+$/, ""));
-    eq("1 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,webcam.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js");
+    eq("1 script tags unchanged", scripts.join(","), "cdn:@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js,config.js,common.js,auth.js,webcam.js,cities.js,cdn:chart.js@4.5.1/dist/chart.umd.min.js,history.js,notifications.js,chat.js");
   }
 
   // City search autocomplete (spec 0008, criteria 1-12; dark-mode and motion looks are manual)
@@ -1594,7 +1594,7 @@
     // 12. No new scripts or external URLs
     const html = await (await fetch("../index.html", { cache: "no-store" })).text();
     const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].length;
-    eq("12 script tag count unchanged (webcam.js added by spec 0010)", scripts, 9);
+    eq("12 script tag count unchanged (webcam.js added by spec 0010, chat.js by 0012)", scripts, 10);
   }
 
   // Satellite pictures (spec 0009). The collector (checks 2 to 5) is covered by logic_test.ts (Deno, run by hand) and a live run.
@@ -1874,7 +1874,7 @@
     }
     ok("12 the new colours use tokens, not literals", !/\.(pic-|history-picture|is-pick)[^{]*\{[^}]*#[0-9a-f]{3,6}/i.test(css.replace(/--[\w-]+\s*:[^;]+;/g, "")));
     const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(m => m[1]);
-    eq("12 script tag count unchanged (webcam.js added by spec 0010)", scripts.length, 9);
+    eq("12 script tag count unchanged (webcam.js added by spec 0010, chat.js by 0012)", scripts.length, 10);
     const hosts = [...new Set([...html.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map(m => m[1]))].sort();
     eq("12 index.html hosts: only the existing ones plus earthdata.nasa.gov (and www.windy.com credit links, spec 0011)", hosts.join(","),
       "api.met.no,cdn.jsdelivr.net,fonts.googleapis.com,fonts.gstatic.com,github.com,open-meteo.com,www.earthdata.nasa.gov,www.windy.com");
@@ -2152,7 +2152,7 @@
       ok("6 " + src + " exists and is an SVG", r.ok && /<svg[\s>]/.test(await r.text()));
     }
     ok("6 no external image on Landing", [...doc.querySelectorAll("#screen-landing img")].every(i => /^assets\/[^/]+\.svg$/.test(i.getAttribute("src"))) && !/<img[^>]+src="https?:/.test(html));
-    eq("6 script tag count unchanged (9)", [...html.matchAll(/<script\b[^>]*src=/g)].length, 9);
+    eq("6 script tag count unchanged (10, chat.js added by spec 0012)", [...html.matchAll(/<script\b[^>]*src=/g)].length, 10);
     ok("6 no script inside Landing", !doc.querySelector("#screen-landing script") && !/<script\b(?![^>]*src=)/.test(html));
 
     // 7. Phone width: no sideways scroll, image above text, signed out and in
