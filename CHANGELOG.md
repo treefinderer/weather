@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-04
+
+- Chat assistant: the default model is now `@cf/meta/llama-3.1-8b-instruct-fp8`, because Cloudflare no longer serves the `-fp8-fast` variant. ([spec 0012](docs/specs/0012-chat-assistant.md))
+
 ## 2026-11-03
 
 - Chat assistant: a chat button on every page opens "Ask Weather Insights", answered by a free Cloudflare Workers AI model. Visitors can ask about the site; signed-in users also about their own cities' history. 5 questions a day, nothing stored. ([spec 0012](docs/specs/0012-chat-assistant.md))

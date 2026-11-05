@@ -3,7 +3,7 @@
 // or database access of its own: index.ts passes in fetch, the user lookups and the chat_usage calls, so logic_test.ts
 // can drive every case with fixtures and mocks. Nothing here logs message contents, replies, context, tokens or IPs.
 
-export const MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";  // default; CHAT_MODEL overrides it
+export const MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";  // default; CHAT_MODEL overrides it
 const MODEL_PATTERN = /^@(cf|hf)\/[\w.\-/]+$/;
 // The model to call: CHAT_MODEL when it looks like a Workers AI model name, else the default. ".." is refused so the
 // name can't step out of /ai/run/ in the URL.

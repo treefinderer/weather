@@ -26,7 +26,7 @@ The harness mock now supports real HTTP statuses and a hung request (`{ __http, 
 
 ## Live checks for the owner (after the secrets, migration and deploy)
 1. The first real Workers AI call: ask a question signed out and signed in, and confirm a sensible reply and that the counter drops.
-2. The model `@cf/meta/llama-3.1-8b-instruct-fp8-fast` (or `CHAT_MODEL`) is still available on the account.
+2. The model `@cf/meta/llama-3.1-8b-instruct-fp8` (or `CHAT_MODEL`) is still available on the account.
 3. The IP header log: after the first cold start, read the function log line "chat: ip headers present" and confirm the header the visitor key uses is there.
 4. The real limits: the 6th question in a day gets the limit message; the status call shows the right count after a reload; `CHAT_VISITOR_DAILY_LIMIT` and `CHAT_GLOBAL_DAILY_LIMIT` behave as set; a failed AI call is refunded.
 5. Anon and authenticated calls to `chat_usage` and `rpc('chat_take')` are rejected.

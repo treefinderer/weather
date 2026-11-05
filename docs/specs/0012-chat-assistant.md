@@ -6,7 +6,7 @@
 
 Fixed decisions (owner, 2026-11-03):
 - **Who:** everyone. Visitors who aren't signed in can ask about the website only. Signed-in users can also ask about their own cities' history.
-- **Provider:** free only: Cloudflare Workers AI, model `@cf/meta/llama-3.1-8b-instruct-fp8-fast`, called by REST: `POST https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.1-8b-instruct-fp8-fast` with `Authorization: Bearer {CF_API_TOKEN}`. The free allowance is 10,000 neurons/day, reset at 00:00 UTC. Past it, requests fail and nothing is charged. Cloudflare doesn't train on customer content and keeps no data for standard inference.
+- **Provider:** free only: Cloudflare Workers AI, model `@cf/meta/llama-3.1-8b-instruct-fp8`, called by REST: `POST https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.1-8b-instruct-fp8` with `Authorization: Bearer {CF_API_TOKEN}`. The free allowance is 10,000 neurons/day, reset at 00:00 UTC. Past it, requests fail and nothing is charged. Cloudflare doesn't train on customer content and keeps no data for standard inference.
 - **Daily limit:** 5 questions per day per signed-in user, and 5 per visitor.
 - **History:** none stored. The conversation lives only in the open page.
 - **Architecture exception accepted** by choosing Cloudflare in chat. The developer adds the CLAUDE.md bullet given in Scope.
@@ -33,7 +33,7 @@ In:
   - Deno tests in `chat/logic_test.ts` for validation and trimming, context building from fixture rows, limit keys (user id vs salted IP hash), and the mapping of Workers AI errors.
 - **Docs:**
   - `supabase/README.md` gets a "Chat assistant" section with the owner steps (see Behavior).
-  - CLAUDE.md Architecture gets this bullet: "**Chat assistant (spec 0012):** Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct-fp8-fast`), keyed, free tier only (owner-approved exception, 2026-11-03). `CF_ACCOUNT_ID`, `CF_API_TOKEN` and `CHAT_SALT` live only as Supabase secrets and are used by the `chat` Edge Function. The browser calls only that function. No conversation is stored; `chat_usage` keeps daily counts per user id or salted IP hash."
+  - CLAUDE.md Architecture gets this bullet: "**Chat assistant (spec 0012):** Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct-fp8`), keyed, free tier only (owner-approved exception, 2026-11-03). `CF_ACCOUNT_ID`, `CF_API_TOKEN` and `CHAT_SALT` live only as Supabase secrets and are used by the `chat` Edge Function. The browser calls only that function. No conversation is stored; `chat_usage` keeps daily counts per user id or salted IP hash."
 
 Out:
 - **Storing conversations** in the database, `localStorage` or `sessionStorage`. Reloading the page clears the chat.
@@ -186,3 +186,5 @@ Out:
 - Shared networks: visitors behind one IP sharing 5 questions a day is acceptable.
 - Expired sign-in: supabase-js refreshes the session before the call. If the token is still invalid, the function treats the caller as a visitor and the reply says to sign in again for questions about your cities.
 - Phone sheet: about 85% of the viewport height, with the page visible above it.
+
+2026-11-04: default model changed to `@cf/meta/llama-3.1-8b-instruct-fp8` because `-fp8-fast` returned 404.

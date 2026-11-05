@@ -110,7 +110,7 @@ Deno.test("ipHeaderNames lists only names, never values", () => {
 Deno.test("Workers AI request: messages with the system prompt first, max_tokens 300, model URL", () => {
   const b = aiBody("SYS", [{ role: "user", content: "hi" }]);
   assertEquals(b, { messages: [{ role: "system", content: "SYS" }, { role: "user", content: "hi" }], max_tokens: MAX_TOKENS });
-  assertEquals(aiUrl("acc"), "https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/meta/llama-3.1-8b-instruct-fp8-fast");
+  assertEquals(aiUrl("acc"), "https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/meta/llama-3.1-8b-instruct-fp8");
 });
 Deno.test("Workers AI reply: result.response and usage; empty or error envelopes throw", () => {
   const out = parseAi(fixture("workers-ai-ok.json"));
@@ -289,13 +289,13 @@ Deno.test("logs never contain the question, the reply, the context, the token or
 Deno.test("CHAT_MODEL: a valid name is used, unset or invalid falls back to the default", async () => {
   assertEquals(chatModel(undefined), MODEL);
   assertEquals(chatModel(""), MODEL);
-  assertEquals(chatModel(" @cf/meta/llama-3.1-8b-instruct-fp8 "), "@cf/meta/llama-3.1-8b-instruct-fp8");
+  assertEquals(chatModel(" @cf/meta/llama-3.2-3b-instruct "), "@cf/meta/llama-3.2-3b-instruct");
   assertEquals(chatModel("@hf/some-org/model_v1.2"), "@hf/some-org/model_v1.2");
   for (const bad of ["cf/meta/x", "@cf/meta/x?y=1", "@cf/../../accounts", "https://evil.example/@cf/x", "@xx/meta/x"]) {
     assertEquals(chatModel(bad), MODEL, bad);
   }
-  const custom = await run(ask("hi"), { model: "@cf/meta/llama-3.1-8b-instruct-fp8" });
-  assertEquals(custom.calls[0].url, aiUrl(ENV.CF_ACCOUNT_ID, "@cf/meta/llama-3.1-8b-instruct-fp8"));
+  const custom = await run(ask("hi"), { model: "@cf/meta/llama-3.2-3b-instruct" });
+  assertEquals(custom.calls[0].url, aiUrl(ENV.CF_ACCOUNT_ID, "@cf/meta/llama-3.2-3b-instruct"));
   const fallback = await run(ask("hi"), { model: "not a model" });
   assertEquals(fallback.calls[0].url, aiUrl(ENV.CF_ACCOUNT_ID, MODEL));
 });

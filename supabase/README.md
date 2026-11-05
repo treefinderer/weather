@@ -465,7 +465,7 @@ backing off to one a day). Each run looks up at most 10 cities.
 ## Spec 0012: chat assistant (owner checklist)
 
 The `chat` function answers questions from the chat button through Cloudflare Workers AI
-(`@cf/meta/llama-3.1-8b-instruct-fp8-fast`, free tier only). It needs three new Edge Function secrets and the 0006
+(`@cf/meta/llama-3.1-8b-instruct-fp8`, free tier only). It needs three new Edge Function secrets and the 0006
 migration. Until all of them exist and the function is deployed, the chat panel just says the assistant is
 unavailable; the rest of the site is unaffected.
 
@@ -558,11 +558,12 @@ creates `chat_usage` (key, UTC day, count; no IP, message or reply column) with 
    include `cf-connecting-ip` or `x-forwarded-for`. If it says `none`, every visitor shares one daily limit; tell the
    orchestrator. (The function uses `cf-connecting-ip` when present, else the last `x-forwarded-for` entry, the one the
    platform's proxy adds, because earlier entries can be set by the caller.)
-5. **Optional, if the model is retired:** if the first test call fails with a model error (the function's logs show
-   `HTTP 4xx` for the Workers AI call, and the app says "unavailable"), add the secret
-   `CHAT_MODEL` = `@cf/meta/llama-3.1-8b-instruct-fp8` (or another model from the Workers AI catalog,
-   https://developers.cloudflare.com/workers-ai/models/) in Edge Functions → Secrets, and retest. No redeploy or code
-   change is needed. An unset or malformed value falls back to `@cf/meta/llama-3.1-8b-instruct-fp8-fast`.
+5. **Optional, model override:** the default model is now `@cf/meta/llama-3.1-8b-instruct-fp8`, so `CHAT_MODEL` is
+   optional. An existing `CHAT_MODEL` secret with that same value can be kept or deleted. If the model is later
+   retired (the function's logs show `HTTP 4xx` for the Workers AI call, and the app says "unavailable"), set
+   `CHAT_MODEL` to another model from the Workers AI catalog (https://developers.cloudflare.com/workers-ai/models/) in
+   Edge Functions → Secrets, and retest. No redeploy or code change is needed. An unset or malformed value falls back
+   to `@cf/meta/llama-3.1-8b-instruct-fp8`.
 6. **No access for users** (in the SQL Editor, should fail with "permission denied"):
    ```sql
    set role authenticated; select * from public.chat_usage; reset role;
