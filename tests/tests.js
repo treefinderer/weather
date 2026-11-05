@@ -1710,10 +1710,10 @@
     const PICS = [pic("2026-10-25", "night"), pic("2026-10-27", "night")];
     const openHist = async (hash, readings, o) => {
       o = o || {};
-      clock.now = Date.UTC(2026, 9, 27, 12);
+      clock.now = o.now || Date.UTC(2026, 9, 27, 12);
       sb.replies["auth.getSession"] = { data: { session: { user: U } }, error: null };
       sb.replies["user_cities.select"] = { data: [cityRow(5)], error: null };
-      sb.replies["cities.select"] = { data: PARIS, error: null };
+      sb.replies["cities.select"] = { data: o.city || PARIS, error: null };
       sb.replies["readings.select"] = pages(readings);
       sb.replies["city_pictures.select"] = o.picReply || { data: o.pics === undefined ? PICS : o.pics, error: null };
       sb.replies["storage.createSignedUrls"] = o.signReply || sign;
@@ -1841,6 +1841,20 @@
     eq("8 changing the period selects the newest picture again", label(), "Night (12am), Oct 27");
 
     // Failure and empty
+    // Custom past range: no today step, opens on its newest picture past a newer reading-only slot.
+    await openHist("#history/5/2026-10-20..2026-10-26/avg", [hr("day", "2026-10-26", 18), hr("night", "2026-10-26", 9), hr("night", "2026-10-22", 7)], { pics: [pic("2026-10-24", "night")] });
+    eq("8 custom past range opens on its newest picture", label(), "Night (12am), Oct 24");
+    ok("8 custom past range shows that picture", !!vimg() && vimg().src.endsWith("5/2026-10-24/night.jpg"));
+    newer().click(); await settle();
+    eq("8 custom past range: next step is a reading-only slot", label(), "Night (12am), Oct 26");
+    ok("8 custom past range: a past slot says no picture, not saved after midnight", txt("history-pic-empty") === "No satellite picture for " + label());
+    // City time: Honolulu is still on Oct 26 when UTC is already Oct 27, so Oct 26 is its today.
+    const HNL = { id: 5, name: "Honolulu", admin1: "Hawaii", country: "United States", lat: 21.3, lon: -157.86, timezone: "Pacific/Honolulu" };
+    await openHist("#history/5/7d/avg", [hr("day", "2026-10-26", 25), hr("night", "2026-10-25", 22)], { now: Date.UTC(2026, 9, 27, 3), city: HNL, pics: [pic("2026-10-25", "night")] });
+    eq("8 city timezone: opens on the newest picture", label(), "Night (12am), Oct 25");
+    newer().click(); await settle();
+    eq("8 city timezone: Oct 26 day is the city's today", label(), "Day (12pm), Oct 26");
+    eq("8 city timezone: saved after midnight even though UTC is already Oct 27", txt("history-pic-empty"), "The satellite picture for Day (12pm), Oct 26 is saved after midnight, city time.");
     await openHist("#history/5/7d/avg", READ, { signReply: { data: null, error: { message: "denied" } } });
     ok("8 signed URL failure: Picture unavailable, charts and table still show", txt("history-pic-empty") === "Picture unavailable" && !vimg() &&
       !!temp() && doc.querySelectorAll("#history-table tbody tr").length === 4);
