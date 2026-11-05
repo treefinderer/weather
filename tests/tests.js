@@ -1730,19 +1730,22 @@
     await openHist("#history/5/7d/avg", READ);
     ok("8 the viewer card is an h3 titled Satellite pictures, after the temperature chart", $("history-pic-title").tagName === "H3" && txt("history-pic-title") === "Satellite pictures" &&
       $("history-temp-card").nextElementSibling === $("history-pic-card"));
-    eq("8 opens on the newest slot", label(), "Day (12pm), Oct 27");
-    ok("8 newest slot with no picture shows the placeholder, no image", txt("history-pic-empty") === "No satellite picture for Day (12pm), Oct 27" && !vimg() && visible($("history-pic-empty")));
-    eq("8 caption is the credit alone on a placeholder", txt("history-pic-caption"), CREDIT);
-    ok("8 Newer disabled at the newest, Older enabled", newer().disabled && !older().disabled);
+    eq("8 opens on the newest slot with a picture, past a newer reading-only slot", label(), "Night (12am), Oct 27");
+    ok("8 that slot's picture shows with alt and caption", !!vimg() && vimg().alt === "Satellite picture of the area around Paris, infrared clouds, Night (12am), Oct 27" &&
+      txt("history-pic-caption") === "Infrared · Night (12am), Oct 27 · " + CREDIT, vimg() && vimg().alt);
+    ok("8 viewer marker placed from the bbox", !!$("history-pic-frame").querySelector(".pic-marker:not([hidden])"));
     const sg2 = sbCalls("storage.createSignedUrls");
     ok("8 one batch signed-URL call for the period's pictures", sg2.length === 1 && sg2[0].args[0].join() === "5/2026-10-25/night.jpg,5/2026-10-27/night.jpg", JSON.stringify(sg2.map(c => c.args[0])));
     const live = $("history-pic-label");
     ok("8 the label is a polite, atomic live region", live.getAttribute("aria-live") === "polite" && live.getAttribute("aria-atomic") === "true");
+    newer().click(); await settle();
+    eq("8 Newer steps forward one slot (announced)", label(), "Day (12pm), Oct 27");
+    ok("8 today's slot with no picture says it is saved after midnight, no image",
+      txt("history-pic-empty") === "The satellite picture for Day (12pm), Oct 27 is saved after midnight, city time." && !vimg() && visible($("history-pic-empty")));
+    eq("8 caption is the credit alone on a placeholder", txt("history-pic-caption"), CREDIT);
+    ok("8 Newer disabled at the newest, Older enabled", newer().disabled && !older().disabled);
     older().click(); await settle();
     eq("8 Older steps back one slot (announced)", label(), "Night (12am), Oct 27");
-    ok("8 that slot's picture shows with alt and caption", !!vimg() && vimg().alt === "Satellite picture of the area around Paris, infrared clouds, Night (12am), Oct 27" &&
-      txt("history-pic-caption") === "Infrared · Night (12am), Oct 27 · " + CREDIT, vimg() && vimg().alt);
-    ok("8 viewer marker placed from the bbox", !!$("history-pic-frame").querySelector(".pic-marker:not([hidden])"));
     older().click(); await settle();
     eq("8 next step is Oct 26 day (reading, no picture)", label(), "Day (12pm), Oct 26");
     ok("8 a slot with only readings shows the placeholder and no broken image", txt("history-pic-empty") === "No satellite picture for Day (12pm), Oct 26" && !vimg());
@@ -1761,17 +1764,17 @@
     ok("9 the canvas is a Tab stop described by a hint", canvas.tabIndex === 0 && canvas.getAttribute("aria-describedby") === "history-temp-hint" &&
       /arrow keys/i.test(txt("history-temp-hint")));
     canvas.focus();
-    eq("9 focusing selects nothing (still the newest)", label(), "Day (12pm), Oct 27");
+    eq("9 focusing selects nothing (still the default)", label(), "Night (12am), Oct 27");
     ok("9 Tab order: canvas, then Older, then Newer", doc.querySelector("#history-temp-chart") && [canvas, older(), newer()].every(e => e.tabIndex === 0) &&
       !!(canvas.compareDocumentPosition(older()) & 4) && !!(older().compareDocumentPosition(newer()) & 4));
-    const prevented = !key(canvas, "ArrowLeft"); await settle();
-    ok("9 Left steps older and is default-prevented", label() === "Night (12am), Oct 27" && prevented, label());
-    ok("9 the tooltip shows that point (night, Oct 27 is index 3)", JSON.stringify(chart.tooltip) === JSON.stringify([{ datasetIndex: 1, index: 3 }]) &&
-      JSON.stringify(temp().active) === JSON.stringify([{ datasetIndex: 1, index: 3 }]), JSON.stringify(chart.tooltip));
     key(canvas, "ArrowRight"); await settle();
     eq("9 Right steps newer", label(), "Day (12pm), Oct 27");
     key(canvas, "ArrowRight"); await settle();
     eq("9 Right stops at the newest", label(), "Day (12pm), Oct 27");
+    const prevented = !key(canvas, "ArrowLeft"); await settle();
+    ok("9 Left steps older and is default-prevented", label() === "Night (12am), Oct 27" && prevented, label());
+    ok("9 the tooltip shows that point (night, Oct 27 is index 3)", JSON.stringify(chart.tooltip) === JSON.stringify([{ datasetIndex: 1, index: 3 }]) &&
+      JSON.stringify(temp().active) === JSON.stringify([{ datasetIndex: 1, index: 3 }]), JSON.stringify(chart.tooltip));
     const o = temp().config.options, hit = (index, datasetIndex) => ({ getElementsAtEventForMode: () => [{ index, datasetIndex, element: { skip: false } }] });
     o.onHover({}, [], hit(1, 1));
     eq("9 hovering the Oct 25 night point selects its picture", label(), "Night (12am), Oct 25");
@@ -1793,7 +1796,9 @@
     // 10. Table
     await openHist("#history/5/7d/avg", READ);
     const picked = () => [...doc.querySelectorAll("#history-table .is-pick")];
-    ok("10 the newest slot is highlighted on load: Oct 27 Day cells", picked().length === 6 && picked().every(c => c.dataset.slot === "day" && c.parentNode.dataset.date === "2026-10-27"));
+    ok("10 the default slot is highlighted on load: Oct 27 Night cells", picked().length === 6 && picked().every(c => c.dataset.slot === "night" && c.parentNode.dataset.date === "2026-10-27"));
+    rowCells("2026-10-27", "day")[2].click(); await settle();
+    eq("10 clicking a Day cell selects that date's day slot", label(), "Day (12pm), Oct 27");
     rowCells("2026-10-27", "night")[2].click(); await settle();
     eq("10 clicking a Night cell selects that date's night picture", label(), "Night (12am), Oct 27");
     ok("10 and shows the picture", !!vimg() && vimg().src.endsWith("5/2026-10-27/night.jpg"));
@@ -1817,7 +1822,7 @@
       many.push(hr("day", d, 15), hr("night", d, 8));
     }
     await openHist("#history/5/12m/avg", many, { pics: [] });
-    eq("10 paging: opens on the newest", label(), "Day (12pm), Oct 27");
+    eq("10 paging: a period with no pictures opens on the newest step", label(), "Day (12pm), Oct 27");
     rowCells("2026-10-20", "night")[0].click(); await settle();
     $("history-older").click(); await settle();
     ok("10 paging: the table moved to page 2", txt("history-page-info").startsWith("Days 32"), txt("history-page-info"));
@@ -1831,9 +1836,9 @@
     older().click(); await settle();
     const radio = doc.querySelector('#history-source input[name="history-source"][value="open-meteo"]');
     radio.checked = true; radio.dispatchEvent(new win.Event("change", { bubbles: true })); await settle();
-    eq("8 changing the source keeps the selection", label(), "Night (12am), Oct 27");
+    eq("8 changing the source keeps the selection", label(), "Day (12pm), Oct 26");
     win.location.hash = "#history/5/30d/avg"; await settle();
-    eq("8 changing the period selects the newest again", label(), "Day (12pm), Oct 27");
+    eq("8 changing the period selects the newest picture again", label(), "Night (12am), Oct 27");
 
     // Failure and empty
     await openHist("#history/5/7d/avg", READ, { signReply: { data: null, error: { message: "denied" } } });
@@ -1842,7 +1847,6 @@
     await openHist("#history/5/7d/avg", READ, { picReply: { data: null, error: SB_ERR.network } });
     ok("8 city_pictures failure: Picture unavailable, table still shows", txt("history-pic-empty") === "Picture unavailable" && doc.querySelectorAll("#history-table tbody tr").length === 4);
     await openHist("#history/5/7d/avg", READ, { signReply: paths => ({ data: paths.map(p => ({ path: p, signedUrl: BROKEN })), error: null }) });
-    older().click(); await settle();
     ok("8 image error in the viewer: hidden image, Picture unavailable, caption is the credit", !vimg() && txt("history-pic-empty") === "Picture unavailable" &&
       txt("history-pic-caption") === CREDIT);
     await openHist("#history/5/7d/avg", [], { pics: [] });
