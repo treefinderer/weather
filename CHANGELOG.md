@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-05
+
+- History: the satellite picture viewer opens on the newest saved picture instead of today's slot, whose picture isn't saved until after midnight; today's empty slots now say so. ([spec 0009](docs/specs/0009-satellite-pictures.md))
+
 ## 2026-11-04
 
 - Chat assistant: the default model is now `@cf/meta/llama-3.1-8b-instruct-fp8`, because Cloudflare no longer serves the `-fp8-fast` variant. ([spec 0012](docs/specs/0012-chat-assistant.md))
