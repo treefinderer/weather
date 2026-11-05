@@ -49,7 +49,7 @@
   let picCache = {};         // "cityId|from|to" -> { rows, urls, failed, at }: the period's pictures and their signed URLs
   let pics = null;           // the picCache entry of the period on show
   let sel = null;            // the viewer's { date, slot }, kept across source and unit changes
-  let selKey = "";           // the period sel belongs to; a new period selects the newest again
+  let selKey = "";           // the period sel belongs to; a new period selects the default again
   let shown = null;          // what render() drew: { g, steps, dates }, for selection changes without a full render
   let tempChart = null;      // the temperature chart, for its selected point and keyboard tooltip
   const viewer = { frame: $("history-pic-frame"), text: $("history-pic-empty"), img: null, marker: null };
@@ -311,6 +311,12 @@
     return out;
   }
   const stepIndex = (list, s) => (s ? list.findIndex(x => x.date === s.date && x.slot === s.slot) : -1);
+  // The viewer's default: the newest step with a saved picture, or the newest step when the period has none.
+  // A day's pictures are saved after its midnight, so the newest steps often have none yet.
+  function defaultStep(list, g) {
+    for (let i = list.length - 1; i >= 0; i--) if (g.pic[list[i].date] && g.pic[list[i].date][list[i].slot]) return list[i];
+    return list.length ? list[list.length - 1] : null;
+  }
   // One field of one slot for the chosen source. Average: the mean of the sources that have a value;
   // conditions can't be averaged, so Open-Meteo's is used, or MET Norway's when Open-Meteo has none.
   function value(rec, slot, field, source) {
@@ -370,7 +376,7 @@
       return;
     }
     const list = steps(g);
-    if (stepIndex(list, sel) < 0) sel = list.length ? list[list.length - 1] : null;
+    if (stepIndex(list, sel) < 0) sel = defaultStep(list, g);
     shown = { g, steps: list, dates: g.dates.slice().reverse() };
     renderStats(g);
     renderTable(g);
@@ -509,7 +515,10 @@
     }
     viewerKey = null;
     caption.textContent = Wx.pic.CREDIT;
-    Wx.pic.show(viewer, { text: row || (pics && pics.failed) ? MSG.picFailed : "No satellite picture for " + when });
+    // The city's today (or later) has no picture yet: it is saved after midnight.
+    const pending = city && sel.date >= todayIn(city.timezone);
+    Wx.pic.show(viewer, { text: row || (pics && pics.failed) ? MSG.picFailed
+      : pending ? "The satellite picture for " + when + " is saved after midnight, city time." : "No satellite picture for " + when });
   }
   // Selects a date and slot from the viewer buttons, the chart or the table, and updates all three.
   // fromKeys shows that point's tooltip on the chart.
